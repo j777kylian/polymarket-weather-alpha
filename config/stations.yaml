@@ -1,0 +1,72 @@
+# Research station catalog for Open-Meteo coordinate queries.
+# Coordinates are airport reference points (OurAirports / published ARP values).
+# These stations are used for weather collection. Polymarket resolution stations
+# are parsed from market text and are NOT assumed to equal these ICAO codes.
+# Example: Paris temperature markets often resolve at Le Bourget (LFPB), not CDG (LFPG).
+
+stations:
+  - station_id: LFPG
+    name: Paris Charles de Gaulle
+    icao: LFPG
+    iata: CDG
+    city: paris
+    latitude: 49.0097
+    longitude: 2.5479
+    elevation_m: 119
+    timezone_name: Europe/Paris
+    coordinate_source: OurAirports ARP (LFPG)
+
+  - station_id: EGLC
+    name: London City
+    icao: EGLC
+    iata: LCY
+    city: london
+    latitude: 51.5053
+    longitude: 0.0553
+    elevation_m: 6
+    timezone_name: Europe/London
+    coordinate_source: OurAirports ARP (EGLC)
+
+  - station_id: EDDM
+    name: Munich
+    icao: EDDM
+    iata: MUC
+    city: munich
+    latitude: 48.3538
+    longitude: 11.7861
+    elevation_m: 453
+    timezone_name: Europe/Berlin
+    coordinate_source: OurAirports ARP (EDDM)
+
+  - station_id: EHAM
+    name: Amsterdam Schiphol
+    icao: EHAM
+    iata: AMS
+    city: amsterdam
+    latitude: 52.3081
+    longitude: 4.7642
+    elevation_m: -3
+    timezone_name: Europe/Amsterdam
+    coordinate_source: OurAirports ARP (EHAM)
+
+  - station_id: KJFK
+    name: New York JFK
+    icao: KJFK
+    iata: JFK
+    city: new york
+    latitude: 40.6399
+    longitude: -73.7787
+    elevation_m: 4
+    timezone_name: America/New_York
+    coordinate_source: OurAirports ARP (KJFK)
+
+  - station_id: LIMC
+    name: Milan Malpensa
+    icao: LIMC
+    iata: MXP
+    city: milan
+    latitude: 45.6306
+    longitude: 8.7281
+    elevation_m: 234
+    timezone_name: Europe/Rome
+    coordinate_source: OurAirports ARP (LIMC)

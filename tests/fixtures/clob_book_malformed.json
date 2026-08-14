@@ -1,0 +1,13 @@
+{
+  "market": "0x1234567890123456789012345678901234567890",
+  "timestamp": "1720000000000",
+  "hash": "malformed-book",
+  "bids": [
+    {"price": "0.45", "size": "100"},
+    {"price": "0", "size": "0"},
+    {"size": "10"},
+    {"price": "0.40"},
+    {"price": null, "size": "5"}
+  ],
+  "asks": [{"price": "0.46", "size": "150"}]
+}

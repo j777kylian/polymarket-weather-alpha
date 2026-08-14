@@ -1,0 +1,19 @@
+{
+  "latitude": 49.009,
+  "longitude": 2.5541,
+  "generationtime_ms": 0.8,
+  "utc_offset_seconds": 3600,
+  "timezone": "Europe/Paris",
+  "timezone_abbreviation": "CEST",
+  "elevation": 119.0,
+  "hourly_units": {"time": "iso8601", "temperature_2m": "°C"},
+  "hourly": {
+    "time": ["2024-07-15T00:00", "2024-07-15T01:00"],
+    "temperature_2m": [19.1, 18.8]
+  },
+  "daily_units": {"time": "iso8601", "temperature_2m_max": "°C"},
+  "daily": {
+    "time": ["2024-07-15"],
+    "temperature_2m_max": [31.2]
+  }
+}

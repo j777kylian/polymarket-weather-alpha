@@ -1,0 +1,19 @@
+{
+  "latitude": 49.009,
+  "longitude": 2.5541,
+  "generationtime_ms": 2.0,
+  "utc_offset_seconds": 0,
+  "timezone": "GMT",
+  "hourly_units": {
+    "time": "iso8601",
+    "temperature_2m": "°C",
+    "temperature_2m_member01": "°C",
+    "temperature_2m_member02": "°C"
+  },
+  "hourly": {
+    "time": ["2024-07-15T12:00"],
+    "temperature_2m": [26.0],
+    "temperature_2m_member01": [25.1],
+    "temperature_2m_member02": [26.4]
+  }
+}

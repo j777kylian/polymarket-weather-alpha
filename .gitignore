@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Local research data (raw payloads and SQLite)
+data/polymarket/**
+!data/polymarket/.gitkeep
+data/weather/**
+!data/weather/.gitkeep
+data/processed/**
+!data/processed/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets / local env — this project must never store trading credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# uv / hatch
+uv.lock

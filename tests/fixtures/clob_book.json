@@ -1,0 +1,12 @@
+{
+  "market": "0x1234567890123456789012345678901234567890",
+  "asset_id": "token-yes-31c",
+  "timestamp": "1720000000000",
+  "hash": "a1b2c3",
+  "bids": [{"price": "0.45", "size": "100"}],
+  "asks": [{"price": "0.46", "size": "150"}],
+  "min_order_size": "1",
+  "tick_size": "0.01",
+  "neg_risk": false,
+  "last_trade_price": "0.45"
+}

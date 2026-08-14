@@ -1,0 +1,32 @@
+{
+  "latitude": 49.009,
+  "longitude": 2.5541,
+  "generationtime_ms": 0.8,
+  "utc_offset_seconds": 3600,
+  "timezone": "Europe/Paris",
+  "timezone_abbreviation": "CEST",
+  "elevation": 119.0,
+  "hourly_units": {
+    "time": "iso8601",
+    "temperature_2m": "°C",
+    "relative_humidity_2m": "%",
+    "dew_point_2m": "°C",
+    "wind_speed_10m": "km/h",
+    "cloud_cover": "%",
+    "surface_pressure": "hPa"
+  },
+  "hourly": {
+    "time": ["2024-07-15T12:00"],
+    "temperature_2m": [28.4],
+    "relative_humidity_2m": [55.0],
+    "dew_point_2m": [18.2],
+    "wind_speed_10m": [12.6],
+    "cloud_cover": [40.0],
+    "surface_pressure": [1013.2]
+  },
+  "daily_units": {"time": "iso8601", "temperature_2m_max": "°C"},
+  "daily": {
+    "time": ["2024-07-15"],
+    "temperature_2m_max": [31.2]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "123",
+  "question": "Highest temperature in Paris on July 15?",
+  "conditionId": "0xabababababababababababababababababababababababababababababababab",
+  "slug": "highest-temperature-in-paris-on-july-15-2026",
+  "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Paris-Le Bourget Airport Station in degrees Celsius on 15 Jul '26. Resolution source: https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+  "groupItemTitle": "31°C",
+  "outcomes": "[\"Yes\", \"No\"]",
+  "clobTokenIds": "[\"token-yes-31c\", \"token-no-31c\"]",
+  "closed": false,
+  "active": true,
+  "startDate": "2026-07-14T00:00:00Z",
+  "endDate": "2026-07-16T00:00:00Z",
+  "events": [{"id": "99"}]
+}
