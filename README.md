@@ -15,10 +15,14 @@ is version-controlled and pins the validated dependency graph; do not delete or
 regenerate it during routine validation.
 
 ```bash
-# Install the locked runtime and all development dependencies into .venv.
-uv sync --locked --all-groups
+# Runtime-only installation from the committed lockfile.
+uv sync --locked
 
-# Run the committed checks against that locked environment.
+# Development/reproducibility installation: the project declares tooling in the
+# optional `dev` extra, so install that extra explicitly from the same lockfile.
+uv sync --locked --extra dev
+
+# Run the committed checks against that locked development environment.
 uv run --locked ruff check src tests
 uv run --locked ruff format --check src tests
 uv run --locked mypy src tests
@@ -28,8 +32,9 @@ uv build
 ```
 
 The validated archival environment used `uv 0.12.4` and Python 3.11. `uv` may
-be installed independently, but a clone must use `uv sync --locked --all-groups`
-before validation so it does not silently resolve a new dependency graph.
+be installed independently, but a clone must use `uv sync --locked --extra dev`
+before reproducibility validation so it does not silently resolve a new
+dependency graph or omit pytest, Ruff, and Mypy.
 
 The default suite uses fixtures and injectable GET transports; it blocks live
 HTTP. No environment variables are required for the offline test/build workflow.
