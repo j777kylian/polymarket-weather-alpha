@@ -457,8 +457,22 @@ def _markets_from_search(payload: Any) -> list[dict[str, Any]]:
                 if not isinstance(event, dict):
                     continue
                 nested = event.get("markets") or []
-                if isinstance(nested, list):
-                    markets.extend(row for row in nested if isinstance(row, dict))
+                if not isinstance(nested, list):
+                    continue
+                event_id = event.get("id")
+                event_slug = event.get("slug")
+                neg_risk = event.get("negRiskMarketID") or event.get("neg_risk_market_id")
+                for row in nested:
+                    if not isinstance(row, dict):
+                        continue
+                    enriched = dict(row)
+                    if event_id is not None and enriched.get("eventId") is None:
+                        enriched["eventId"] = event_id
+                    if event_slug is not None and enriched.get("event_slug") is None:
+                        enriched["event_slug"] = event_slug
+                    if neg_risk is not None and enriched.get("negRiskMarketID") is None:
+                        enriched["negRiskMarketID"] = neg_risk
+                    markets.append(enriched)
         direct = payload.get("markets") or []
         if isinstance(direct, list):
             markets.extend(row for row in direct if isinstance(row, dict))

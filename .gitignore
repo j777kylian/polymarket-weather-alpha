@@ -25,6 +25,8 @@ data/weather/**
 !data/weather/.gitkeep
 data/processed/**
 !data/processed/.gitkeep
+data/phase3/**
+!data/phase3/.gitkeep
 *.db
 *.sqlite
 *.sqlite3

@@ -7,7 +7,7 @@ def test_station_config_covers_required_airports() -> None:
     stations = load_stations()
     ids = {station.station_id for station in stations}
     assert ids == REQUIRED_STATION_IDS
-    assert {"LFPG", "EGLC", "EDDM", "EHAM", "KJFK", "LIMC"} == REQUIRED_STATION_IDS
+    assert {"LFPG", "EGLC", "EDDM", "EHAM", "KJFK", "LIMC", "KLGA"} == REQUIRED_STATION_IDS
     for station in stations:
         assert station.latitude is not None
         assert station.longitude is not None

@@ -34,6 +34,8 @@ class NormalizedMarket:
     market_id: str | None = None
     event_id: str | None = None
     slug: str | None = None
+    event_slug: str | None = None
+    neg_risk_market_id: str | None = None
     description: str | None = None
     city: str | None = None
     station_icao: str | None = None
@@ -60,6 +62,9 @@ class MarketOutcome:
     temperature_celsius_max: float | None = None
     bucket_kind: str | None = None
     group_item_title: str | None = None
+    temperature_unit: str | None = None
+    temperature_native_min: float | None = None
+    temperature_native_max: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

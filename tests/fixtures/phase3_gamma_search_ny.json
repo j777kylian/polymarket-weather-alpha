@@ -1,0 +1,42 @@
+{
+  "events": [
+    {
+      "id": "e-ny-2026-07-15",
+      "slug": "highest-temperature-in-new-york-city-on-july-15-2026",
+      "markets": [
+        {
+          "id": "m-ny-86",
+          "question": "Will the highest temperature in New York City be 86°F on July 15, 2026?",
+          "conditionId": "0xny86",
+          "slug": "will-the-highest-temperature-in-new-york-city-be-86f-on-july-15-2026",
+          "description": "LaGuardia Airport KLGA https://www.wunderground.com/history/daily/us/ny/new-york-city/KLGA.",
+          "groupItemTitle": "86°F",
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"yes-ny-86\", \"no-ny-86\"]",
+          "outcomePrices": "[\"0\", \"1\"]",
+          "closed": true,
+          "resolved": true,
+          "active": false,
+          "startDate": "2026-07-13T00:00:00Z",
+          "endDate": "2026-07-16T00:00:00Z"
+        },
+        {
+          "id": "m-ny-87",
+          "question": "Will the highest temperature in New York City be 87°F on July 15, 2026?",
+          "conditionId": "0xny87",
+          "slug": "will-the-highest-temperature-in-new-york-city-be-87f-on-july-15-2026",
+          "description": "LaGuardia Airport KLGA https://www.wunderground.com/history/daily/us/ny/new-york-city/KLGA.",
+          "groupItemTitle": "87°F",
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"yes-ny-87\", \"no-ny-87\"]",
+          "outcomePrices": "[\"1\", \"0\"]",
+          "closed": true,
+          "resolved": true,
+          "active": false,
+          "startDate": "2026-07-13T00:00:00Z",
+          "endDate": "2026-07-16T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

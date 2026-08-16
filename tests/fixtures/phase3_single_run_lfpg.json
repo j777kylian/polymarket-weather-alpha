@@ -1,0 +1,29 @@
+{
+  "timezone": "Europe/Paris",
+  "utc_offset_seconds": 7200,
+  "hourly_units": {
+    "temperature_2m": "°C",
+    "dew_point_2m": "°C",
+    "relative_humidity_2m": "%",
+    "cloud_cover": "%",
+    "wind_speed_10m": "km/h",
+    "wind_direction_10m": "°",
+    "precipitation": "mm",
+    "surface_pressure": "hPa"
+  },
+  "hourly": {
+    "time": [
+      "2026-07-15T00:00",
+      "2026-07-15T12:00",
+      "2026-07-15T15:00"
+    ],
+    "temperature_2m": [22.0, 29.0, 31.0],
+    "dew_point_2m": [12.0, 14.0, 13.0],
+    "relative_humidity_2m": [50, 40, 35],
+    "cloud_cover": [10, 20, 30],
+    "wind_speed_10m": [8, 10, 12],
+    "wind_direction_10m": [180, 190, 200],
+    "precipitation": [0, 0, 0],
+    "surface_pressure": [1012, 1011, 1010]
+  }
+}

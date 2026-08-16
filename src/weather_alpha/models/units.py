@@ -20,6 +20,10 @@ def fahrenheit_to_celsius(value: float) -> float:
     return (float(value) - 32.0) * 5.0 / 9.0
 
 
+def celsius_to_fahrenheit(value: float) -> float:
+    return float(value) * 9.0 / 5.0 + 32.0
+
+
 def kelvin_to_celsius(value: float) -> float:
     return float(value) - 273.15
 

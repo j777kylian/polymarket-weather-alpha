@@ -3,6 +3,8 @@
 # These stations are used for weather collection. Polymarket resolution stations
 # are parsed from market text and are NOT assumed to equal these ICAO codes.
 # Example: Paris temperature markets often resolve at Le Bourget (LFPB), not CDG (LFPG).
+# LFPB is intentionally absent: unknown stations are quarantined, never remapped.
+# KLGA is included because New York markets often name LaGuardia explicitly.
 
 stations:
   - station_id: LFPG
@@ -59,6 +61,17 @@ stations:
     elevation_m: 4
     timezone_name: America/New_York
     coordinate_source: OurAirports ARP (KJFK)
+
+  - station_id: KLGA
+    name: New York LaGuardia
+    icao: KLGA
+    iata: LGA
+    city: new york
+    latitude: 40.7772
+    longitude: -73.8726
+    elevation_m: 6
+    timezone_name: America/New_York
+    coordinate_source: OurAirports ARP (KLGA)
 
   - station_id: LIMC
     name: Milan Malpensa

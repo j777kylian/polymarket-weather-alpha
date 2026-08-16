@@ -107,6 +107,9 @@ ADAPTERS = {
     PROVIDER_ENSEMBLE: OpenMeteoEnsembleAdapter,
 }
 
+# Phase 3 Single Runs live in weather_alpha.research.single_run (issued_at/available_at).
+# Historical Forecast remains unavailable as a point-in-time model input.
+
 
 def _base_params(station: Station, start_date: str, end_date: str) -> dict[str, Any]:
     return {

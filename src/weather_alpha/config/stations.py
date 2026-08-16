@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-REQUIRED_STATION_IDS = frozenset({"LFPG", "EGLC", "EDDM", "EHAM", "KJFK", "LIMC"})
+REQUIRED_STATION_IDS = frozenset({"LFPG", "EGLC", "EDDM", "EHAM", "KJFK", "LIMC", "KLGA"})
 
 
 @dataclass(frozen=True, slots=True)

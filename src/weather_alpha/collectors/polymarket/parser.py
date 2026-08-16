@@ -37,6 +37,7 @@ from typing import Any
 
 from weather_alpha.models.records import MarketOutcome, NormalizedMarket, Provenance
 from weather_alpha.models.timeutil import parse_timestamp, utc_now
+from weather_alpha.models.units import fahrenheit_to_celsius
 
 TARGET_CITIES: frozenset[str] = frozenset(
     {"paris", "london", "munich", "amsterdam", "new york", "milan"}
@@ -89,20 +90,27 @@ _MONTHS = {
 }
 
 _TEMP_MARKET_RE = re.compile(
-    r"highest\s+temperature\s+in\s+(?P<city>new\s+york|paris|london|munich|amsterdam|milan)"
+    r"(?:will\s+the\s+)?highest\s+temperature\s+in\s+"
+    r"(?P<city>new\s+york|paris|london|munich|amsterdam|milan)"
+    r"(?:\s+city)?"
+    r"(?:\s+be\s+[^?]+?)?"
     r"\s+on\s+(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2})(?:[a-z]{2})?"
     r"(?:,?\s*(?P<year>\d{4}))?",
     re.IGNORECASE,
 )
 
 _SLUG_DATE_RE = re.compile(
-    r"highest-temperature-in-(?P<city>new-york|paris|london|munich|amsterdam|milan)"
+    r"(?:will-the-)?highest-temperature-in-(?P<city>new-york|paris|london|munich|amsterdam|milan)"
+    r"(?:-city)?"
+    r"(?:-be-[^-]+?)?"
     r"-on-(?P<month>[a-z]+)-(?P<day>\d{1,2})(?:-(?P<year>\d{4}))?",
     re.IGNORECASE,
 )
 
-_ICAO_URL_RE = re.compile(r"/([A-Z]{4})(?:[/?#]|$)", re.IGNORECASE)
-_ICAO_TOKEN_RE = re.compile(r"\b([A-Z]{4})\b")
+# ICAO as a URL path segment, then URL separator, punctuation/whitespace, or end.
+# Does not match /LONDON (continuation letters) or arbitrary English tokens.
+_ICAO_URL_RE = re.compile(r"/([A-Z]{4})(?=[/?#]|[^\w]|$)", re.IGNORECASE)
+_ICAO_PAREN_RE = re.compile(r"\(([A-Z]{4})\)")
 _SHORT_YEAR_RE = re.compile(r"\b(\d{1,2})\s+([A-Za-z]{3,9})\s+'?(\d{2})\b")
 _MONTH_NAME = (
     r"january|february|march|april|may|june|july|august|september|october|"
@@ -115,12 +123,25 @@ _DESC_MDY_RE = re.compile(
 _ISO_CALENDAR_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 _STRUCTURED_DATE_KEYS = ("eventDate", "event_date", "date")
 
-_SIGNED_C = r"[+-]?\d+(?:\.\d+)?"
-_EXACT_TEMP_RE = re.compile(rf"^\s*({_SIGNED_C})\s*°?\s*C\s*$", re.IGNORECASE)
-_BELOW_RE = re.compile(rf"^\s*({_SIGNED_C})\s*°?\s*C\s+or\s+(below|lower|less)\s*$", re.IGNORECASE)
-_ABOVE_RE = re.compile(rf"^\s*({_SIGNED_C})\s*°?\s*C\s+or\s+(higher|above|more)\s*$", re.IGNORECASE)
+_SIGNED_NUM = r"[+-]?\d+(?:\.\d+)?"
+_EXACT_TEMP_RE = re.compile(
+    rf"^\s*({_SIGNED_NUM})\s*°?\s*(?P<unit>C|F|Celsius|Fahrenheit)?\s*$",
+    re.IGNORECASE,
+)
+_BELOW_RE = re.compile(
+    rf"^\s*({_SIGNED_NUM})\s*°?\s*(?P<unit>C|F|Celsius|Fahrenheit)?\s+"
+    rf"or\s+(below|lower|less)\s*$",
+    re.IGNORECASE,
+)
+_ABOVE_RE = re.compile(
+    rf"^\s*({_SIGNED_NUM})\s*°?\s*(?P<unit>C|F|Celsius|Fahrenheit)?\s+"
+    rf"or\s+(higher|above|more)\s*$",
+    re.IGNORECASE,
+)
 _RANGE_RE = re.compile(
-    rf"^\s*({_SIGNED_C})\s*[\-\u2013]\s*({_SIGNED_C})\s*°?\s*C\s*$", re.IGNORECASE
+    rf"^\s*({_SIGNED_NUM})\s*[\-\u2013]\s*({_SIGNED_NUM})\s*°?\s*"
+    rf"(?P<unit>C|F|Celsius|Fahrenheit)?\s*$",
+    re.IGNORECASE,
 )
 
 
@@ -130,6 +151,9 @@ class TemperatureBucket:
     min_c: float | None
     max_c: float | None
     label: str
+    unit: str
+    min_native: float | None
+    max_native: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,20 +171,84 @@ def parse_temperature_bucket(label: str | None) -> TemperatureBucket | None:
         return None
     match = _RANGE_RE.match(text)
     if match:
-        low = float(match.group(1))
-        high = float(match.group(2))
-        return TemperatureBucket("range", min(low, high), max(low, high), text)
+        unit = _bucket_unit(match.group("unit"), text)
+        if unit is None:
+            return None
+        low_native = float(match.group(1))
+        high_native = float(match.group(2))
+        low = _to_celsius(low_native, unit)
+        high = _to_celsius(high_native, unit)
+        if low <= high:
+            return TemperatureBucket(
+                "range",
+                low,
+                high,
+                text,
+                unit,
+                min(low_native, high_native),
+                max(low_native, high_native),
+            )
+        return TemperatureBucket(
+            "range",
+            high,
+            low,
+            text,
+            unit,
+            min(low_native, high_native),
+            max(low_native, high_native),
+        )
     match = _BELOW_RE.match(text)
     if match:
-        return TemperatureBucket("below", None, float(match.group(1)), text)
+        unit = _bucket_unit(match.group("unit"), text)
+        if unit is None:
+            return None
+        native = float(match.group(1))
+        return TemperatureBucket("below", None, _to_celsius(native, unit), text, unit, None, native)
     match = _ABOVE_RE.match(text)
     if match:
-        return TemperatureBucket("above", float(match.group(1)), None, text)
+        unit = _bucket_unit(match.group("unit"), text)
+        if unit is None:
+            return None
+        native = float(match.group(1))
+        return TemperatureBucket("above", _to_celsius(native, unit), None, text, unit, native, None)
     match = _EXACT_TEMP_RE.match(text)
     if match:
-        value = float(match.group(1))
-        return TemperatureBucket("exact", value, value, text)
+        unit = _bucket_unit(match.group("unit"), text)
+        if unit is None:
+            return None
+        native = float(match.group(1))
+        value = _to_celsius(native, unit)
+        return TemperatureBucket("exact", value, value, text, unit, native, native)
     return None
+
+
+def _bucket_unit(explicit: str | None, label: str) -> str | None:
+    if explicit:
+        token = explicit.strip().upper()
+        if token.startswith("F"):
+            return "F"
+        if token.startswith("C"):
+            return "C"
+    upper = label.upper()
+    if "°F" in upper or re.search(r"\bF\b", upper):
+        return "F"
+    if "°C" in upper or re.search(r"\bC\b", upper):
+        return "C"
+    # Bare numeric labels without a unit are treated as Celsius (European markets).
+    if re.fullmatch(rf"\s*{_SIGNED_NUM}\s*", label):
+        return "C"
+    if re.fullmatch(
+        rf"\s*{_SIGNED_NUM}\s*[\-\u2013]\s*{_SIGNED_NUM}\s*",
+        label,
+    ):
+        return "C"
+    return None
+
+
+def _to_celsius(value: float, unit: str) -> float:
+    if unit == "F":
+        return fahrenheit_to_celsius(value)
+    return float(value)
 
 
 def is_temperature_market_text(question: str, slug: str | None = None) -> bool:
@@ -210,6 +298,10 @@ def parse_gamma_market(
         market_id=_optional_str(payload.get("id")),
         event_id=_event_id(payload),
         slug=slug,
+        event_slug=_optional_str(payload.get("event_slug") or payload.get("eventSlug")),
+        neg_risk_market_id=_optional_str(
+            payload.get("negRiskMarketID") or payload.get("neg_risk_market_id")
+        ),
         description=description,
         city=city,
         station_icao=station_icao,
@@ -243,6 +335,9 @@ def _parse_outcomes(
         min_c = bucket.min_c if bucket is not None and apply_bucket else None
         max_c = bucket.max_c if bucket is not None and apply_bucket else None
         kind = bucket.kind if bucket is not None and apply_bucket else None
+        unit = bucket.unit if bucket is not None and apply_bucket else None
+        native_min = bucket.min_native if bucket is not None and apply_bucket else None
+        native_max = bucket.max_native if bucket is not None and apply_bucket else None
         results.append(
             MarketOutcome(
                 condition_id=market.condition_id,
@@ -254,6 +349,9 @@ def _parse_outcomes(
                 temperature_celsius_max=max_c,
                 bucket_kind=kind,
                 group_item_title=_optional_str(payload.get("groupItemTitle")),
+                temperature_unit=unit,
+                temperature_native_min=native_min,
+                temperature_native_max=native_max,
             )
         )
     return tuple(results)
@@ -477,16 +575,14 @@ def _extract_station_icao(description: str | None, notes: list[str]) -> str | No
     url_match = _ICAO_URL_RE.search(description)
     if url_match:
         return url_match.group(1).upper()
-    tokens = _ICAO_TOKEN_RE.findall(description.upper())
-    # Conservative: only accept a 4-letter token that sits next to airport/station wording.
-    if "AIRPORT" in description.upper() or "STATION" in description.upper():
-        icao_like = [
-            token for token in tokens if token.isalpha() and token[0] in {"E", "K", "L", "C"}
-        ]
-        if len(icao_like) == 1:
-            return str(icao_like[0])
-        if len(icao_like) > 1:
-            notes.append("multiple ICAO-like tokens; station left unresolved")
+    # Conservative fallback: parenthetical ICAO only. Do not accept bare English tokens
+    # such as CITY/THIS/WILL even when airport/station wording is present.
+    paren = [match.group(1).upper() for match in _ICAO_PAREN_RE.finditer(description.upper())]
+    unique_paren = list(dict.fromkeys(paren))
+    if len(unique_paren) == 1:
+        return unique_paren[0]
+    if len(unique_paren) > 1:
+        notes.append("multiple ICAO-like tokens; station left unresolved")
     return None
 
 

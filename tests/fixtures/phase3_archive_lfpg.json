@@ -1,0 +1,14 @@
+{
+  "timezone": "Europe/Paris",
+  "utc_offset_seconds": 7200,
+  "hourly_units": {"temperature_2m": "°C"},
+  "hourly": {
+    "time": ["2026-07-15T00:00", "2026-07-15T12:00"],
+    "temperature_2m": [20.0, 28.0]
+  },
+  "daily_units": {"temperature_2m_max": "°C"},
+  "daily": {
+    "time": ["2026-07-15"],
+    "temperature_2m_max": [31.2]
+  }
+}

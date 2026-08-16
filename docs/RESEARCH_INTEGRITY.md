@@ -4,10 +4,11 @@ Phase 1/2 stores data and defines interfaces. It does **not** produce alpha, edg
 
 ## Look-ahead leakage
 
-- [ ] Forecast features at time `t` use only information issued at or before `t`.
-- [ ] Open-Meteo Historical Forecast series is **not** treated as a lagged forecast: it stitches recent run hours and will leak if used as “the forecast traders saw.”
-- [ ] `issued_at` is null unless the API actually supplied a run initialization time (or the request used Single Runs `run=`). Null means **unavailable**, not “same as valid time.”
-- [ ] Market prices used as features are timestamped at or before the decision time; CLOB `prices-history` points are not assumed to be executable at that instant.
+- [x] Open-Meteo Archive is **retrospective** and does **not** expose immutable point-in-time publication/revision timestamps. It must not populate `observation_max_so_far_c`, `observation_as_of`, or any observed covariate at decision T. Archive daily maximum may remain `diagnostic_actual_max_c` (training-target diagnostic only).
+- [x] Forecast features at time `t` use only information issued at or before `t` (Phase 3 Single Runs: `available_at=run+6h` must be ≤ decision time).
+- [x] Open-Meteo Historical Forecast series is **not** treated as a lagged forecast: it stitches recent run hours and will leak if used as “the forecast traders saw.” Phase 3 does not use it as point-in-time model input.
+- [x] `issued_at` is null unless the API actually supplied a run initialization time (or the request used Single Runs `run=`). Null means **unavailable**, not “same as valid time.”
+- [x] Market prices used as features are timestamped at or before the decision time (`market_price_observed_at` stored separately from `decision_ts`); CLOB `prices-history` points are not assumed to be executable at that instant. Point-in-time queries use a documented 7-day lookback ending at `decision_ts` and do **not** trust Gamma `startDate`/`endDate` (those lifecycle timestamps can be internally inconsistent). Price-history request URL/raw_path/content_sha256 are retained on the snapshot. Missing `p` stays null, never zero. HTTP failures are counted and limited separately from HTTP 200 empty history.
 
 ## Timestamp alignment
 
@@ -32,7 +33,7 @@ Phase 1/2 stores data and defines interfaces. It does **not** produce alpha, edg
 
 - [ ] City parsed from question/slug only among {Paris, London, Munich, Amsterdam, New York, Milan}.
 - [ ] Event date: complete question date is authoritative; complete slug date is used only if question month/day is absent or agrees; description may fill a unique non-conflicting year. Conflicting sources leave `event_date` null with a parse note.
-- [ ] ICAO is copied from market text/URL when present. **No** CDG↔LFPG↔LFPB invention.
+- [ ] ICAO is copied from market text/URL when present. Wunderground URLs that end with punctuation (e.g. `.../EGLC.` / `.../KLGA.`) are accepted as a 4-letter path segment. **No** CDG↔LFPG↔LFPB invention. Bare English tokens such as CITY/THIS/WILL are not treated as ICAO.
 - [ ] Unresolved questions remain in `markets` with `parse_status=unresolved` or `partial`.
 - [ ] Configured weather stations (LFPG, EGLC, EDDM, EHAM, KJFK, LIMC) are collection points, not resolution oracles.
 
@@ -44,10 +45,11 @@ Phase 1/2 stores data and defines interfaces. It does **not** produce alpha, edg
 
 ## Executable prices, spread, fees, liquidity
 
-- [ ] Mid/last/`prices-history` is **not** an executable fill.
-- [ ] Current CLOB book snapshots (bids/asks, tick, min size) are the only official public book; there is **no** official historical book API.
-- [ ] Fees, maker/taker, and slippage are not modeled in Phase 1/2 (`pnl` stays null).
-- [ ] Thin books and tail buckets (`or below` / `or higher`) need extra liquidity checks before any economic claim.
+- [x] Mid/last/`prices-history` is **not** an executable fill.
+- [x] Current CLOB book snapshots (bids/asks, tick, min size) are the only official public book; there is **no** official historical book API.
+- [x] Fees, maker/taker, and slippage are not modeled in Phase 1/2/3 (`pnl` stays null when asks are absent).
+- [x] Thin books and tail buckets (`or below` / `or higher`) need extra liquidity checks before any economic claim.
+- [x] Phase 3 backtests with missing historical asks report `non_executable`, `executable_trades=0`, and null PnL/ROI/drawdown/profit factor—never fabricated zeros.
 
 ## Survivorship bias
 

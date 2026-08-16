@@ -1,0 +1,64 @@
+{
+  "events": [
+    {
+      "id": "e-paris-2026-07-15",
+      "slug": "highest-temperature-in-paris-on-july-15-2026",
+      "markets": [
+        {
+          "id": "m-paris-30",
+          "question": "Highest temperature in Paris on July 15, 2026?",
+          "conditionId": "0xparis30",
+          "slug": "highest-temperature-in-paris-on-july-15-2026-30c",
+          "description": "Station at Paris Charles de Gaulle Airport LFPG. https://www.wunderground.com/history/daily/fr/paris/LFPG.",
+          "groupItemTitle": "30°C",
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"yes-paris-30\", \"no-paris-30\"]",
+          "outcomePrices": "[\"0\", \"1\"]",
+          "closed": true,
+          "resolved": true,
+          "active": false,
+          "startDate": "2026-07-13T00:00:00Z",
+          "endDate": "2026-07-16T00:00:00Z"
+        },
+        {
+          "id": "m-paris-31",
+          "question": "Highest temperature in Paris on July 15, 2026?",
+          "conditionId": "0xparis31",
+          "slug": "highest-temperature-in-paris-on-july-15-2026-31c",
+          "description": "Station at Paris Charles de Gaulle Airport LFPG. https://www.wunderground.com/history/daily/fr/paris/LFPG.",
+          "groupItemTitle": "31°C",
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"yes-paris-31\", \"no-paris-31\"]",
+          "outcomePrices": "[\"1\", \"0\"]",
+          "closed": true,
+          "resolved": true,
+          "active": false,
+          "startDate": "2026-07-13T00:00:00Z",
+          "endDate": "2026-07-16T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "e-paris-2026-07-16-lfpb",
+      "slug": "highest-temperature-in-paris-on-july-16-2026",
+      "markets": [
+        {
+          "id": "m-paris-lfpb",
+          "question": "Highest temperature in Paris on July 16, 2026?",
+          "conditionId": "0xparislfpb",
+          "slug": "highest-temperature-in-paris-on-july-16-2026",
+          "description": "Resolves at Le Bourget https://www.wunderground.com/history/daily/fr/bonneuil-en-france/LFPB",
+          "groupItemTitle": "30°C",
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"yes-paris-lfpb\", \"no-paris-lfpb\"]",
+          "outcomePrices": "[\"0\", \"1\"]",
+          "closed": true,
+          "resolved": true,
+          "active": false,
+          "startDate": "2026-07-14T00:00:00Z",
+          "endDate": "2026-07-17T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

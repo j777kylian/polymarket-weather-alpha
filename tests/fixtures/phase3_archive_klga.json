@@ -1,0 +1,14 @@
+{
+  "timezone": "America/New_York",
+  "utc_offset_seconds": -14400,
+  "hourly_units": {"temperature_2m": "°C"},
+  "hourly": {
+    "time": ["2026-07-15T00:00", "2026-07-15T12:00"],
+    "temperature_2m": [22.0, 27.0]
+  },
+  "daily_units": {"temperature_2m_max": "°C"},
+  "daily": {
+    "time": ["2026-07-15"],
+    "temperature_2m_max": [30.5]
+  }
+}

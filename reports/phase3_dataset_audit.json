@@ -1,0 +1,797 @@
+{
+  "assumptions": {
+    "date_filters_after_parsing": true,
+    "descriptive_price_not_executable": true,
+    "out_of_range_counted_not_quarantined_per_market": true,
+    "split": "chronological unique event_date split 60/20/20; train=['2026-03-20', '2026-03-21', '2026-03-22', '2026-03-23', '2026-03-24', '2026-03-25', '2026-03-26', '2026-03-27', '2026-03-28', '2026-03-29', '2026-03-30', '2026-03-31', '2026-04-01', '2026-04-02', '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06']; validation=['2026-04-07', '2026-04-08', '2026-04-09', '2026-04-10', '2026-04-11', '2026-04-12']; test=['2026-04-13', '2026-04-14', '2026-04-15', '2026-04-16', '2026-04-17', '2026-04-18']",
+    "timestamps_utc": true
+  },
+  "audit": {
+    "city_coverage": {
+      "amsterdam": 176,
+      "london": 308,
+      "milan": 319,
+      "munich": 308,
+      "new york": 319,
+      "paris": 308
+    },
+    "date_coverage": {
+      "2026-03-20": 11,
+      "2026-03-21": 55,
+      "2026-03-22": 55,
+      "2026-03-23": 55,
+      "2026-03-24": 55,
+      "2026-03-25": 55,
+      "2026-03-26": 55,
+      "2026-03-27": 55,
+      "2026-03-28": 55,
+      "2026-03-29": 55,
+      "2026-03-30": 55,
+      "2026-03-31": 11,
+      "2026-04-01": 55,
+      "2026-04-02": 55,
+      "2026-04-03": 66,
+      "2026-04-04": 66,
+      "2026-04-05": 66,
+      "2026-04-06": 66,
+      "2026-04-07": 66,
+      "2026-04-08": 66,
+      "2026-04-09": 66,
+      "2026-04-10": 66,
+      "2026-04-11": 66,
+      "2026-04-12": 66,
+      "2026-04-13": 66,
+      "2026-04-14": 66,
+      "2026-04-15": 66,
+      "2026-04-16": 66,
+      "2026-04-17": 66,
+      "2026-04-18": 66
+    },
+    "duplicates": 0,
+    "exclusions": {
+      "not a temperature market": 252,
+      "unknown/ambiguous event date": 6
+    },
+    "field_missingness": {
+      "best_ask": 1738,
+      "cloud_cover_pct": 0,
+      "dew_point_c": 0,
+      "diagnostic_actual_max_c": 0,
+      "executable_entry_price": 1738,
+      "forecast_daily_max_c": 0,
+      "humidity_pct": 0,
+      "market_probability": 26,
+      "observation_max_so_far_c": 1738,
+      "precipitation": 0,
+      "settlement_label": 0,
+      "surface_pressure": 0,
+      "wind_speed": 0
+    },
+    "markets": 1738,
+    "notes": [
+      "best_ask/executable_entry_price missingness is expected: historical books are unavailable.",
+      "diagnostic_actual_max_c is Open-Meteo Archive, not settlement.",
+      "Settlement labels are not decision-time features.",
+      "Open-Meteo Archive hourly rows are not decision-time observation features."
+    ],
+    "snapshots": 1738,
+    "station_coverage": {
+      "EDDM": 308,
+      "EGLC": 308,
+      "EHAM": 176,
+      "KLGA": 319,
+      "LFPG": 308,
+      "LIMC": 319
+    },
+    "timestamp_violations": []
+  },
+  "collect_manifest": {
+    "archive_schema_errors": 0,
+    "canonical_event_rebuild": {
+      "ambiguous_dropped": 0,
+      "groups": 158,
+      "network": false,
+      "source": "local polymarket_gamma-search raw payloads"
+    },
+    "cities": [
+      "amsterdam",
+      "london",
+      "milan",
+      "munich",
+      "new york",
+      "paris"
+    ],
+    "discovered_outside_range": 13240,
+    "end_date": "2026-04-18",
+    "forecast_lead_hours": 1.0,
+    "gamma_schema_errors": 0,
+    "limitations": [
+      "GET-only public APIs; no historical order-book reconstruction.",
+      "Open-Meteo Historical Forecast is not used as point-in-time model input.",
+      "Archive maxima are diagnostic, not settlement observations.",
+      "Open-Meteo Archive is not a decision-time observation feature.",
+      "Gamma startDate/endDate are not trusted for point-in-time CLOB price windows.",
+      "CLOB prices-history uses a 7-day lookback ending at decision_ts; select_price_at_or_before is defense in depth."
+    ],
+    "markets_seen": 15236,
+    "max_search_pages": 10,
+    "parquet": "data/phase3/2026-03-20_2026-04-18_1h/phase3_snapshots.parquet",
+    "price_fidelity_minutes": 60,
+    "price_history_empty": 26,
+    "price_http_errors": 0,
+    "price_schema_errors": 0,
+    "providers": [
+      "polymarket-gamma-public-search",
+      "polymarket-clob-prices-history",
+      "open-meteo-single-runs",
+      "open-meteo-archive"
+    ],
+    "quarantined": 258,
+    "search_limit_per_type": 50,
+    "single_run_schema_errors": 0,
+    "snapshots": 1738,
+    "start_date": "2026-03-20",
+    "usable_event_dates": [
+      "2026-03-20",
+      "2026-03-21",
+      "2026-03-22",
+      "2026-03-23",
+      "2026-03-24",
+      "2026-03-25",
+      "2026-03-26",
+      "2026-03-27",
+      "2026-03-28",
+      "2026-03-29",
+      "2026-03-30",
+      "2026-03-31",
+      "2026-04-01",
+      "2026-04-02",
+      "2026-04-03",
+      "2026-04-04",
+      "2026-04-05",
+      "2026-04-06",
+      "2026-04-07",
+      "2026-04-08",
+      "2026-04-09",
+      "2026-04-10",
+      "2026-04-11",
+      "2026-04-12",
+      "2026-04-13",
+      "2026-04-14",
+      "2026-04-15",
+      "2026-04-16",
+      "2026-04-17",
+      "2026-04-18"
+    ]
+  },
+  "common_research_context": {
+    "assumptions": {
+      "date_filters_after_parsing": true,
+      "descriptive_price_not_executable": true,
+      "out_of_range_counted_not_quarantined_per_market": true,
+      "split": "chronological unique event_date split 60/20/20; train=['2026-03-20', '2026-03-21', '2026-03-22', '2026-03-23', '2026-03-24', '2026-03-25', '2026-03-26', '2026-03-27', '2026-03-28', '2026-03-29', '2026-03-30', '2026-03-31', '2026-04-01', '2026-04-02', '2026-04-03', '2026-04-04', '2026-04-05', '2026-04-06']; validation=['2026-04-07', '2026-04-08', '2026-04-09', '2026-04-10', '2026-04-11', '2026-04-12']; test=['2026-04-13', '2026-04-14', '2026-04-15', '2026-04-16', '2026-04-17', '2026-04-18']",
+      "timestamps_utc": true
+    },
+    "chronological_split": {
+      "snapshot_counts": {
+        "test": 396,
+        "train": 946,
+        "validation": 396
+      },
+      "test_dates": [
+        "2026-04-13",
+        "2026-04-14",
+        "2026-04-15",
+        "2026-04-16",
+        "2026-04-17",
+        "2026-04-18"
+      ],
+      "train_dates": [
+        "2026-03-20",
+        "2026-03-21",
+        "2026-03-22",
+        "2026-03-23",
+        "2026-03-24",
+        "2026-03-25",
+        "2026-03-26",
+        "2026-03-27",
+        "2026-03-28",
+        "2026-03-29",
+        "2026-03-30",
+        "2026-03-31",
+        "2026-04-01",
+        "2026-04-02",
+        "2026-04-03",
+        "2026-04-04",
+        "2026-04-05",
+        "2026-04-06"
+      ],
+      "validation_dates": [
+        "2026-04-07",
+        "2026-04-08",
+        "2026-04-09",
+        "2026-04-10",
+        "2026-04-11",
+        "2026-04-12"
+      ]
+    },
+    "counts": {
+      "archive_schema_errors": 0,
+      "discovered_outside_range": 13240,
+      "gamma_schema_errors": 0,
+      "markets": 1738,
+      "price_history_empty": 26,
+      "price_http_errors": 0,
+      "price_schema_errors": 0,
+      "quarantined": 258,
+      "single_run_schema_errors": 0,
+      "snapshots": 1738
+    },
+    "descriptive_price_vs_executable": {
+      "descriptive_market_probability": "CLOB prices-history p is descriptive market_probability only",
+      "executable_unavailable": "historical asks/order books absent; executable fills unavailable"
+    },
+    "exclusions": {
+      "not a temperature market": 252,
+      "unknown/ambiguous event date": 6
+    },
+    "executable_state": {
+      "asks_order_books": {
+        "reason": "historical asks/order books absent",
+        "value": null
+      },
+      "descriptive_only": true,
+      "executable_entry_price": {
+        "reason": "historical asks unavailable",
+        "value": null
+      },
+      "executable_trades": 0
+    },
+    "limitations": {
+      "asks_orderbooks": {
+        "reason": "historical asks/order books unavailable from public CLOB prices-history",
+        "value": null
+      },
+      "chronological_split": {
+        "test_dates": [
+          "2026-04-13",
+          "2026-04-14",
+          "2026-04-15",
+          "2026-04-16",
+          "2026-04-17",
+          "2026-04-18"
+        ],
+        "train_dates": [
+          "2026-03-20",
+          "2026-03-21",
+          "2026-03-22",
+          "2026-03-23",
+          "2026-03-24",
+          "2026-03-25",
+          "2026-03-26",
+          "2026-03-27",
+          "2026-03-28",
+          "2026-03-29",
+          "2026-03-30",
+          "2026-03-31",
+          "2026-04-01",
+          "2026-04-02",
+          "2026-04-03",
+          "2026-04-04",
+          "2026-04-05",
+          "2026-04-06"
+        ],
+        "validation_dates": [
+          "2026-04-07",
+          "2026-04-08",
+          "2026-04-09",
+          "2026-04-10",
+          "2026-04-11",
+          "2026-04-12"
+        ]
+      },
+      "gamma_survivorship": "Gamma public-search is a current search index, not a guaranteed archival universe; survivorship bias is possible.",
+      "missing_historical_asks": "CLOB prices-history does not reconstruct historical asks/order books.",
+      "no_alpha_or_executability": "No alpha is claimed; executable fills cannot be reconstructed without historical asks.",
+      "point_in_time_metar": {
+        "reason": "point-in-time historical METAR/station observations unavailable",
+        "value": null
+      },
+      "point_in_time_observations": "Point-in-time historical METAR/station observations are unavailable; observation_max_so_far_c remains null.",
+      "providers_and_sources": [
+        "Polymarket Gamma public-search",
+        "Polymarket CLOB GET /prices-history",
+        "Open-Meteo Single Runs (ecmwf_ifs)",
+        "Open-Meteo Archive (diagnostic only)"
+      ],
+      "sample": "snapshots train=946 validation=396 test=396",
+      "sample_or_checkpoint": {
+        "conclusion": "descriptive_only",
+        "operational_minimum_scored_events": 30,
+        "reason": "scored events 36 meet the operational minimum of 30 (assumption, not a universal statistical threshold). Results remain descriptive; no profitability is claimed.",
+        "scored_events": 36,
+        "status": "meets_operational_minimum"
+      },
+      "scored": "validation scored_events=36 skipped=0 reasons=[]; test scored_events=36 skipped=0 reasons=[]",
+      "settlement_source": "Open-Meteo Archive maxima are diagnostic; Wunderground settlement prints are absent.",
+      "shared": [
+        "Providers: Polymarket Gamma public-search, CLOB GET /prices-history, Open-Meteo Single Runs (https://open-meteo.com/en/docs/single-runs-api), Open-Meteo Archive. Previous Runs docs: https://open-meteo.com/en/docs/previous-runs-api.",
+        "CLOB prices-history p is descriptive market_probability only; historical asks are unavailable.",
+        "Open-Meteo Archive maxima are diagnostic grid/reanalysis values, not Wunderground settlement.",
+        "Open-Meteo Archive is retrospective and is not a decision-time observation feature.",
+        "Gamma public-search is a current search index, not a guaranteed archival universe; delisted, unindexed, or metadata-mutated markets may be absent, so survivorship bias is possible and market counts must not be read as complete historical coverage.",
+        "Fees, slippage, and leverage are not modeled. No compounding or Kelly sizing.",
+        "No alpha is claimed when the executable sample is insufficient."
+      ],
+      "survivorship_bias": "Gamma public-search is a current search index, not a guaranteed archival universe."
+    },
+    "metrics": {
+      "sample_assessment": {
+        "conclusion": "descriptive_only",
+        "operational_minimum_scored_events": 30,
+        "reason": "scored events 36 meet the operational minimum of 30 (assumption, not a universal statistical threshold). Results remain descriptive; no profitability is claimed.",
+        "scored_events": 36,
+        "status": "meets_operational_minimum"
+      },
+      "test": {
+        "clipped_log_loss": 9.72521624489927,
+        "ece": 0.08301230731043567,
+        "multiclass_brier": 0.9876350901452563,
+        "note": "copied from already-computed validation/test model metrics; not execution PnL",
+        "source": "phase3_model_calibration"
+      },
+      "validation": {
+        "clipped_log_loss": 11.332487315705656,
+        "ece": 0.07737877961808443,
+        "multiclass_brier": 0.8874619251545255,
+        "note": "copied from already-computed validation/test model metrics; not execution PnL",
+        "source": "phase3_model_calibration"
+      }
+    },
+    "missing_data": {
+      "asks_orderbooks": {
+        "reason": "historical asks/order books unavailable",
+        "value": null
+      },
+      "point_in_time_metar": {
+        "reason": "point-in-time METAR unavailable",
+        "value": null
+      },
+      "wunderground_settlement_prints": {
+        "reason": "Wunderground settlement prints absent; archive maxima are diagnostic only",
+        "value": null
+      }
+    },
+    "model_identity": {
+      "baseline": "HistoricalFrequencyBaseline",
+      "models": [
+        "ForecastErrorBucketModel",
+        "HistoricalFrequencyBaseline"
+      ],
+      "primary": "ForecastErrorBucketModel"
+    },
+    "providers": [
+      "Polymarket Gamma public-search",
+      "Polymarket CLOB GET /prices-history",
+      "Open-Meteo Single Runs (ecmwf_ifs)",
+      "Open-Meteo Archive (diagnostic only)"
+    ],
+    "quarantines": {
+      "count": 258,
+      "detail": null,
+      "reasons": {
+        "not a temperature market": 252,
+        "unknown/ambiguous event date": 6
+      }
+    },
+    "requested_range": {
+      "end_date": "2026-04-18",
+      "label": "requested_dates=2026-03-20..2026-04-18",
+      "start_date": "2026-03-20"
+    },
+    "standalone_caveats": {
+      "asks_order_books_absent": true,
+      "descriptive_price_not_executable": true,
+      "gamma_survivorship_bias": true,
+      "no_alpha_inference": true,
+      "point_in_time_metar_absent": true,
+      "sample_or_checkpoint_limits": true,
+      "wunderground_settlement_caveat": true
+    },
+    "usable_event_dates": [
+      "2026-03-20",
+      "2026-03-21",
+      "2026-03-22",
+      "2026-03-23",
+      "2026-03-24",
+      "2026-03-25",
+      "2026-03-26",
+      "2026-03-27",
+      "2026-03-28",
+      "2026-03-29",
+      "2026-03-30",
+      "2026-03-31",
+      "2026-04-01",
+      "2026-04-02",
+      "2026-04-03",
+      "2026-04-04",
+      "2026-04-05",
+      "2026-04-06",
+      "2026-04-07",
+      "2026-04-08",
+      "2026-04-09",
+      "2026-04-10",
+      "2026-04-11",
+      "2026-04-12",
+      "2026-04-13",
+      "2026-04-14",
+      "2026-04-15",
+      "2026-04-16",
+      "2026-04-17",
+      "2026-04-18"
+    ]
+  },
+  "inferences": {
+    "alpha_claimed": false,
+    "no_alpha_or_executability": "No alpha or executability claim from coverage counts alone.",
+    "timestamp_violations": [],
+    "trading_inference": false
+  },
+  "limitations": {
+    "asks_orderbooks": {
+      "reason": "historical asks/order books unavailable from public CLOB prices-history",
+      "value": null
+    },
+    "chronological_split": {
+      "test_dates": [
+        "2026-04-13",
+        "2026-04-14",
+        "2026-04-15",
+        "2026-04-16",
+        "2026-04-17",
+        "2026-04-18"
+      ],
+      "train_dates": [
+        "2026-03-20",
+        "2026-03-21",
+        "2026-03-22",
+        "2026-03-23",
+        "2026-03-24",
+        "2026-03-25",
+        "2026-03-26",
+        "2026-03-27",
+        "2026-03-28",
+        "2026-03-29",
+        "2026-03-30",
+        "2026-03-31",
+        "2026-04-01",
+        "2026-04-02",
+        "2026-04-03",
+        "2026-04-04",
+        "2026-04-05",
+        "2026-04-06"
+      ],
+      "validation_dates": [
+        "2026-04-07",
+        "2026-04-08",
+        "2026-04-09",
+        "2026-04-10",
+        "2026-04-11",
+        "2026-04-12"
+      ]
+    },
+    "gamma_survivorship": "Gamma public-search is a current search index, not a guaranteed archival universe; survivorship bias is possible.",
+    "missing_historical_asks": "CLOB prices-history does not reconstruct historical asks/order books.",
+    "no_alpha_or_executability": "No alpha is claimed; executable fills cannot be reconstructed without historical asks.",
+    "point_in_time_metar": {
+      "reason": "point-in-time historical METAR/station observations unavailable",
+      "value": null
+    },
+    "point_in_time_observations": "Point-in-time historical METAR/station observations are unavailable; observation_max_so_far_c remains null.",
+    "providers_and_sources": [
+      "Polymarket Gamma public-search",
+      "Polymarket CLOB GET /prices-history",
+      "Open-Meteo Single Runs (ecmwf_ifs)",
+      "Open-Meteo Archive (diagnostic only)"
+    ],
+    "sample": "snapshots train=946 validation=396 test=396",
+    "sample_or_checkpoint": {
+      "conclusion": "descriptive_only",
+      "operational_minimum_scored_events": 30,
+      "reason": "scored events 36 meet the operational minimum of 30 (assumption, not a universal statistical threshold). Results remain descriptive; no profitability is claimed.",
+      "scored_events": 36,
+      "status": "meets_operational_minimum"
+    },
+    "scored": "validation scored_events=36 skipped=0 reasons=[]; test scored_events=36 skipped=0 reasons=[]",
+    "settlement_source": "Open-Meteo Archive maxima are diagnostic; Wunderground settlement prints are absent.",
+    "shared": [
+      "Providers: Polymarket Gamma public-search, CLOB GET /prices-history, Open-Meteo Single Runs (https://open-meteo.com/en/docs/single-runs-api), Open-Meteo Archive. Previous Runs docs: https://open-meteo.com/en/docs/previous-runs-api.",
+      "CLOB prices-history p is descriptive market_probability only; historical asks are unavailable.",
+      "Open-Meteo Archive maxima are diagnostic grid/reanalysis values, not Wunderground settlement.",
+      "Open-Meteo Archive is retrospective and is not a decision-time observation feature.",
+      "Gamma public-search is a current search index, not a guaranteed archival universe; delisted, unindexed, or metadata-mutated markets may be absent, so survivorship bias is possible and market counts must not be read as complete historical coverage.",
+      "Fees, slippage, and leverage are not modeled. No compounding or Kelly sizing.",
+      "No alpha is claimed when the executable sample is insufficient."
+    ],
+    "survivorship_bias": "Gamma public-search is a current search index, not a guaranteed archival universe."
+  },
+  "measured_data": {
+    "chronological_split": {
+      "snapshot_counts": {
+        "test": 396,
+        "train": 946,
+        "validation": 396
+      },
+      "test_dates": [
+        "2026-04-13",
+        "2026-04-14",
+        "2026-04-15",
+        "2026-04-16",
+        "2026-04-17",
+        "2026-04-18"
+      ],
+      "train_dates": [
+        "2026-03-20",
+        "2026-03-21",
+        "2026-03-22",
+        "2026-03-23",
+        "2026-03-24",
+        "2026-03-25",
+        "2026-03-26",
+        "2026-03-27",
+        "2026-03-28",
+        "2026-03-29",
+        "2026-03-30",
+        "2026-03-31",
+        "2026-04-01",
+        "2026-04-02",
+        "2026-04-03",
+        "2026-04-04",
+        "2026-04-05",
+        "2026-04-06"
+      ],
+      "validation_dates": [
+        "2026-04-07",
+        "2026-04-08",
+        "2026-04-09",
+        "2026-04-10",
+        "2026-04-11",
+        "2026-04-12"
+      ]
+    },
+    "city_coverage": {
+      "amsterdam": 176,
+      "london": 308,
+      "milan": 319,
+      "munich": 308,
+      "new york": 319,
+      "paris": 308
+    },
+    "collect_manifest": {
+      "archive_schema_errors": 0,
+      "canonical_event_rebuild": {
+        "ambiguous_dropped": 0,
+        "groups": 158,
+        "network": false,
+        "source": "local polymarket_gamma-search raw payloads"
+      },
+      "cities": [
+        "amsterdam",
+        "london",
+        "milan",
+        "munich",
+        "new york",
+        "paris"
+      ],
+      "discovered_outside_range": 13240,
+      "end_date": "2026-04-18",
+      "forecast_lead_hours": 1.0,
+      "gamma_schema_errors": 0,
+      "limitations": [
+        "GET-only public APIs; no historical order-book reconstruction.",
+        "Open-Meteo Historical Forecast is not used as point-in-time model input.",
+        "Archive maxima are diagnostic, not settlement observations.",
+        "Open-Meteo Archive is not a decision-time observation feature.",
+        "Gamma startDate/endDate are not trusted for point-in-time CLOB price windows.",
+        "CLOB prices-history uses a 7-day lookback ending at decision_ts; select_price_at_or_before is defense in depth."
+      ],
+      "markets_seen": 15236,
+      "max_search_pages": 10,
+      "parquet": "data/phase3/2026-03-20_2026-04-18_1h/phase3_snapshots.parquet",
+      "price_fidelity_minutes": 60,
+      "price_history_empty": 26,
+      "price_http_errors": 0,
+      "price_schema_errors": 0,
+      "providers": [
+        "polymarket-gamma-public-search",
+        "polymarket-clob-prices-history",
+        "open-meteo-single-runs",
+        "open-meteo-archive"
+      ],
+      "quarantined": 258,
+      "search_limit_per_type": 50,
+      "single_run_schema_errors": 0,
+      "snapshots": 1738,
+      "start_date": "2026-03-20",
+      "usable_event_dates": [
+        "2026-03-20",
+        "2026-03-21",
+        "2026-03-22",
+        "2026-03-23",
+        "2026-03-24",
+        "2026-03-25",
+        "2026-03-26",
+        "2026-03-27",
+        "2026-03-28",
+        "2026-03-29",
+        "2026-03-30",
+        "2026-03-31",
+        "2026-04-01",
+        "2026-04-02",
+        "2026-04-03",
+        "2026-04-04",
+        "2026-04-05",
+        "2026-04-06",
+        "2026-04-07",
+        "2026-04-08",
+        "2026-04-09",
+        "2026-04-10",
+        "2026-04-11",
+        "2026-04-12",
+        "2026-04-13",
+        "2026-04-14",
+        "2026-04-15",
+        "2026-04-16",
+        "2026-04-17",
+        "2026-04-18"
+      ]
+    },
+    "collection_options": "max_search_pages=10 search_limit_per_type=50 cities=['amsterdam', 'london', 'milan', 'munich', 'new york', 'paris']",
+    "date_coverage": {
+      "2026-03-20": 11,
+      "2026-03-21": 55,
+      "2026-03-22": 55,
+      "2026-03-23": 55,
+      "2026-03-24": 55,
+      "2026-03-25": 55,
+      "2026-03-26": 55,
+      "2026-03-27": 55,
+      "2026-03-28": 55,
+      "2026-03-29": 55,
+      "2026-03-30": 55,
+      "2026-03-31": 11,
+      "2026-04-01": 55,
+      "2026-04-02": 55,
+      "2026-04-03": 66,
+      "2026-04-04": 66,
+      "2026-04-05": 66,
+      "2026-04-06": 66,
+      "2026-04-07": 66,
+      "2026-04-08": 66,
+      "2026-04-09": 66,
+      "2026-04-10": 66,
+      "2026-04-11": 66,
+      "2026-04-12": 66,
+      "2026-04-13": 66,
+      "2026-04-14": 66,
+      "2026-04-15": 66,
+      "2026-04-16": 66,
+      "2026-04-17": 66,
+      "2026-04-18": 66
+    },
+    "discovered_outside_range": 13240,
+    "duplicates": 0,
+    "excluded": {
+      "not a temperature market": 252,
+      "unknown/ambiguous event date": 6
+    },
+    "exclusions": {
+      "not a temperature market": 252,
+      "unknown/ambiguous event date": 6
+    },
+    "market_counts": {
+      "markets": 1738,
+      "snapshots": 1738
+    },
+    "markets": 1738,
+    "price_history_empty": 26,
+    "price_http_errors": 0,
+    "price_schema_errors": 0,
+    "providers": [
+      "Polymarket Gamma public-search",
+      "Polymarket CLOB GET /prices-history",
+      "Open-Meteo Single Runs (ecmwf_ifs)",
+      "Open-Meteo Archive (diagnostic only)"
+    ],
+    "quarantined": 258,
+    "requested_dates": "requested_dates=2026-03-20..2026-04-18",
+    "requested_range": {
+      "end_date": "2026-04-18",
+      "label": "requested_dates=2026-03-20..2026-04-18",
+      "start_date": "2026-03-20"
+    },
+    "snapshots": 1738,
+    "station_coverage": {
+      "EDDM": 308,
+      "EGLC": 308,
+      "EHAM": 176,
+      "KLGA": 319,
+      "LFPG": 308,
+      "LIMC": 319
+    },
+    "usable_event_dates": [
+      "2026-03-20",
+      "2026-03-21",
+      "2026-03-22",
+      "2026-03-23",
+      "2026-03-24",
+      "2026-03-25",
+      "2026-03-26",
+      "2026-03-27",
+      "2026-03-28",
+      "2026-03-29",
+      "2026-03-30",
+      "2026-03-31",
+      "2026-04-01",
+      "2026-04-02",
+      "2026-04-03",
+      "2026-04-04",
+      "2026-04-05",
+      "2026-04-06",
+      "2026-04-07",
+      "2026-04-08",
+      "2026-04-09",
+      "2026-04-10",
+      "2026-04-11",
+      "2026-04-12",
+      "2026-04-13",
+      "2026-04-14",
+      "2026-04-15",
+      "2026-04-16",
+      "2026-04-17",
+      "2026-04-18"
+    ]
+  },
+  "missing_data": {
+    "asks_orderbooks": {
+      "reason": "historical asks/order books unavailable",
+      "value": null
+    },
+    "exclusions": {
+      "not a temperature market": 252,
+      "unknown/ambiguous event date": 6
+    },
+    "field_missingness": {
+      "best_ask": 1738,
+      "cloud_cover_pct": 0,
+      "dew_point_c": 0,
+      "diagnostic_actual_max_c": 0,
+      "executable_entry_price": 1738,
+      "forecast_daily_max_c": 0,
+      "humidity_pct": 0,
+      "market_probability": 26,
+      "observation_max_so_far_c": 1738,
+      "precipitation": 0,
+      "settlement_label": 0,
+      "surface_pressure": 0,
+      "wind_speed": 0
+    },
+    "notes": [
+      "best_ask/executable_entry_price missingness is expected: historical books are unavailable.",
+      "diagnostic_actual_max_c is Open-Meteo Archive, not settlement.",
+      "Settlement labels are not decision-time features.",
+      "Open-Meteo Archive hourly rows are not decision-time observation features."
+    ],
+    "point_in_time_metar": {
+      "reason": "point-in-time METAR unavailable",
+      "value": null
+    },
+    "wunderground_settlement_prints": {
+      "reason": "Wunderground settlement prints absent; archive maxima are diagnostic only",
+      "value": null
+    }
+  },
+  "model_output": {
+    "note": "Dataset audit does not fit a probability model."
+  }
+}

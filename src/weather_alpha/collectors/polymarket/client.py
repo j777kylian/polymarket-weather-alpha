@@ -66,7 +66,7 @@ class PolymarketReadClient:
         query: str,
         *,
         page: int = 1,
-        limit_per_type: int = 20,
+        limit_per_type: int = DEFAULT_PAGE_SIZE,
         keep_closed_markets: int = 1,
     ) -> ReadOnlyResponse:
         return self._http.get(
