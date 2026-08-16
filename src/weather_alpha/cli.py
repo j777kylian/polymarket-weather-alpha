@@ -36,6 +36,7 @@ from weather_alpha.config.settings import (
     validate_date_range,
 )
 from weather_alpha.http.readonly import ReadOnlyHttpClient
+from weather_alpha.phase35.readiness import run_offline_readiness
 from weather_alpha.research.collect import Phase3CollectOptions, Phase3Collector
 from weather_alpha.research.run import load_quarantine, load_snapshots_from_jsonl, run_phase3
 from weather_alpha.storage.repository import WeatherAlphaRepository
@@ -278,3 +279,11 @@ def phase3_run(input_root: Path, output_root: Path) -> None:
             sort_keys=True,
         )
     )
+
+
+@main.command("phase35-readiness")
+@click.option("--output-root", type=click.Path(path_type=Path), required=True)
+def phase35_readiness(output_root: Path) -> None:
+    """Offline Phase 3.5 collection-readiness (fixtures only; no full collection)."""
+    result = run_offline_readiness(output_dir=output_root)
+    click.echo(json.dumps(result.as_dict(), indent=2, sort_keys=True))

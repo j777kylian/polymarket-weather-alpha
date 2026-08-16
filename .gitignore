@@ -27,6 +27,11 @@ data/processed/**
 !data/processed/.gitkeep
 data/phase3/**
 !data/phase3/.gitkeep
+# Phase 3.5 separate local roots (historical descriptive vs forward executable)
+data/phase35/historical/**
+!data/phase35/historical/.gitkeep
+data/phase35/forward/**
+!data/phase35/forward/.gitkeep
 *.db
 *.sqlite
 *.sqlite3

@@ -6,6 +6,8 @@ Phase 1–2 collect **public read-only** Polymarket and Open-Meteo data into SQL
 
 Phase 3 adds a **bounded research-only** pipeline under `src/weather_alpha/research/`: discover closed temperature-bucket markets (`limit_per_type=50` with bounded pages), attach CLOB `prices-history` descriptive probabilities (timestamp + raw provenance), Open-Meteo Single Runs ECMWF forecasts with conservative `available_at=run+6h` and per-hour forecast state, archive diagnostic maxima (not decision-time observations), build a Parquet research dataset, fit interpretable baselines, and write deterministic audit/calibration/backtest/tail reports. Historical asks are unavailable from official public APIs, so backtests are classified **descriptive/non-executable** with `executable_trades=0`, null `selected_threshold`, and null PnL—never fabricated fills. Small scored samples are reported as **insufficient/inconclusive** under a documented operational minimum (assumption, not a universal statistical law).
 
+Phase 3.5 adds **collection-readiness** under `src/weather_alpha/phase35/`: typed namespaces that keep historical descriptive CLOB `p` separate from forward executable GET `/book` snapshots; pre-registered checkpoints at 48/24/12/6/3/1 hours; fixture-testable historical coverage audit; fixed descriptive bands/stratification; event-group bootstrap/robustness gates; and offline report scaffolding. Historical research readiness may use `survivorship_limited_descriptive` without proving universe completeness; forward observational readiness is distinct from two-sided executability; fixture-only never establishes live forward readiness; `PHASE35_COLLECTION_READY` is not executable/profitable. Local roots `data/phase35/historical/` and `data/phase35/forward/` are ignored collection artifacts. This readiness pass does **not** run a 12-month historical collection or a long-running forward daemon.
+
 This project is standalone. It does not import or modify any other AIWorkspace repository.
 
 ## Reproducible setup (uv, Python 3.11)
@@ -64,6 +66,9 @@ uv run weather-alpha phase3-collect --dry-run \
 uv run weather-alpha phase3-run \
   --input-root data/processed/phase3 \
   --output-root data/processed/phase3
+
+# Phase 3.5 offline readiness (fixtures only; no full collection / no forward daemon).
+uv run weather-alpha phase35-readiness --output-root /tmp/weather-alpha-phase35-readiness
 ```
 
 `--dry-run` prints intended scope and performs **no HTTP and no writes**. Phase 3 date spans are capped (62 days). No API keys are required or accepted for trading.
@@ -122,12 +127,13 @@ src/weather_alpha/
   storage/        SQLite schema/repository, raw JSON paths
   collectors/     Polymarket + Open-Meteo GET collectors
   research/       Phase 3 dataset, models, backtest, tail, reports
+  phase35/        Phase 3.5 readiness: contracts, checkpoints, coverage, forward book
   probability/    Phase 1/2 scaffold (still present)
   backtest/       Phase 1/2 scaffold (still present)
   reports/        Phase 1/2 scaffold (still present)
   cli.py
 config/stations.yaml
-data/{polymarket,weather,processed}/
+data/{polymarket,weather,processed,phase35/historical,phase35/forward}/
 docs/             API limits, source evaluation, integrity checklist
 ```
 
