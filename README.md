@@ -8,27 +8,33 @@ Phase 3 adds a **bounded research-only** pipeline under `src/weather_alpha/resea
 
 This project is standalone. It does not import or modify any other AIWorkspace repository.
 
-## Setup (uv, Python 3.11+)
+## Reproducible setup (uv, Python 3.11)
+
+`.python-version` pins the validated interpreter series to Python 3.11. `uv.lock`
+is version-controlled and pins the validated dependency graph; do not delete or
+regenerate it during routine validation.
 
 ```bash
-uv venv --python 3.11
-source .venv/bin/activate
-uv pip install hatchling editables
-uv pip install -e ".[dev]" --no-build-isolation
+# Install the locked runtime and all development dependencies into .venv.
+uv sync --locked --all-groups
+
+# Run the committed checks against that locked environment.
+uv run --locked ruff check src tests
+uv run --locked ruff format --check src tests
+uv run --locked mypy src tests
+uv run --locked pytest -q tests/test_phase3_*.py
+uv run --locked pytest -q
+uv build
 ```
 
-`--no-build-isolation` is required while the tree is not fully git-tracked (uv’s isolated build copies git-listed files only). After files are committed, `uv pip install -e ".[dev]"` is sufficient.
+The validated archival environment used `uv 0.12.4` and Python 3.11. `uv` may
+be installed independently, but a clone must use `uv sync --locked --all-groups`
+before validation so it does not silently resolve a new dependency graph.
 
-## Tests, lint, typecheck
-
-The default suite uses fixtures and injectable GET transports. Live network is blocked.
-
-```bash
-uv run pytest
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv run mypy src tests
-```
+The default suite uses fixtures and injectable GET transports; it blocks live
+HTTP. No environment variables are required for the offline test/build workflow.
+`.env.example` is intentionally placeholder-only: do not add API keys, tokens,
+wallet credentials, or signing material.
 
 ## CLI
 
@@ -57,7 +63,49 @@ uv run weather-alpha phase3-run \
 
 `--dry-run` prints intended scope and performs **no HTTP and no writes**. Phase 3 date spans are capped (62 days). No API keys are required or accepted for trading.
 
-Weather providers: `open-meteo-historical-forecast` (default Phase 1/2), `open-meteo-archive`, `open-meteo-ensemble`. Phase 3 point-in-time forecasts use Open-Meteo **Single Runs** (`ecmwf_ifs`) only—not Historical Forecast.
+Weather providers: `open-meteo-historical-forecast` (default Phase 1/2),
+`open-meteo-archive`, `open-meteo-ensemble`. Phase 3 point-in-time forecasts use
+Open-Meteo **Single Runs** (`ecmwf_ifs`) only—not Historical Forecast.
+
+## Phase 3 data and report reproducibility
+
+A clone reproduces the **source code, locked Python environment, tests, and
+committed deterministic Phase 3 reports**. It does **not** reproduce the exact
+frozen historical raw dataset by itself: raw payloads and normalized local data
+under `data/phase3/**` are intentionally ignored because they are collection
+artifacts, may be large, and depend on public providers' current availability.
+No raw Phase 3 dataset is committed.
+
+The frozen Phase 3 experiment requested `2026-03-20` through `2026-04-18` from
+Polymarket Gamma public search, Polymarket CLOB `GET /prices-history`, Open-Meteo
+Single Runs (`ecmwf_ifs`), and Open-Meteo Archive (diagnostic only). The delivered,
+version-controlled outputs are:
+
+- `reports/phase3_dataset_audit.{json,md}`
+- `reports/phase3_model_calibration.{json,md}`
+- `reports/phase3_backtest.{json,md}`
+- `reports/phase3_tail_alpha.{json,md}`
+
+When authorized to make a new bounded public GET-only collection, use a local
+ignored root such as `data/phase3/<range>/`. That collection can create
+`phase3_snapshots.jsonl`, `phase3_snapshots.parquet`,
+`phase3_quarantine.json`, `phase3_source_manifest.json`, and `raw/` beneath its
+chosen input root. It must not be treated as a reproduction of the historical
+frozen corpus unless its manifest and provenance are independently compared.
+
+With an existing local normalized corpus, run the analysis offline without
+collecting network data and write regenerated reports to a separate directory:
+
+```bash
+uv run --locked weather-alpha phase3-run \
+  --input-root data/phase3/2026-03-20_2026-04-18_1h \
+  --output-root /tmp/weather-alpha-phase3-reports
+```
+
+The command requires `phase3_snapshots.jsonl` and reads an optional
+`phase3_quarantine.json` and `phase3_source_manifest.json` from `--input-root`.
+It writes the four JSON/Markdown reports below `--output-root/reports/`. Do not
+overwrite the committed delivered reports during validation.
 
 ## Architecture
 
