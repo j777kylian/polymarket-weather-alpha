@@ -19,9 +19,16 @@ from click.testing import CliRunner
 from tests.fakes import RecordingGetTransport
 from weather_alpha.cli import main
 from weather_alpha.http.readonly import ReadOnlyHttpClient, ReadOnlyResponse
-from weather_alpha.phase35.full_collection.audit import audit_dataset
+from weather_alpha.phase35.full_collection.audit import (
+    audit_dataset,
+    build_dataset_audit_reports,
+)
 from weather_alpha.phase35.full_collection.budget import StaticDiskProbe
 from weather_alpha.phase35.full_collection.corpus import FullCollectionCorpusAssembler
+from weather_alpha.phase35.full_collection.freeze import (
+    DatasetFreezeStatus,
+    build_production_dataset_freeze,
+)
 from weather_alpha.phase35.full_collection.ledger import ResultClassification
 from weather_alpha.phase35.full_collection.manifest import (
     ManifestAuthorizationError,
@@ -49,6 +56,7 @@ from weather_alpha.phase35.full_collection.policy import (
     YES_PENDING_FINAL_REVIEW,
 )
 from weather_alpha.phase35.full_collection.schedule import gamma_identities
+from weather_alpha.research.reports import write_report_pair
 
 COMMIT = "orchestrator-test-commit"
 PARIS_DAY = "2026-03-01"
@@ -485,6 +493,34 @@ def test_offline_production_e2e_family_to_audit_and_no_replay(tmp_path: Path) ->
     overall_expected = sum(cell.expected_count for cell in audit.matrices["CHECKPOINT"])
     assert overall_expected == 6
     assert audit.phase35_dataset_ready is True
+    reports_dir = namespace / "reports"
+    machine, human = build_dataset_audit_reports(audit, collection_not_executed=False)
+    write_report_pair(
+        reports_dir / "phase35_historical_audit.md",
+        reports_dir / "phase35_historical_audit.json",
+        human,
+        machine,
+    )
+    before_freeze_calls = list(transport.calls)
+    freeze = build_production_dataset_freeze(
+        collection_root=tmp_path / "collections",
+        collection_id=first.collection_id,
+    )
+    assert freeze.status is DatasetFreezeStatus.SUCCESS
+    assert freeze.dataset_freeze_created is True
+    assert freeze.dataset_id == f"phase35-dataset-{first.collection_id}"
+    assert freeze.freeze_sha256
+    assert freeze.manifest_sha256 == progress["manifest_sha256"]
+    assert freeze.raw_index_sha256
+    assert freeze.canonical_dataset_sha256
+    assert freeze.audit_report_sha256
+    freeze_file = reports_dir / "phase35_dataset_freeze.json"
+    assert freeze_file.is_file()
+    freeze_payload = json.loads(freeze_file.read_text(encoding="utf-8"))
+    assert freeze_payload["EVENT_COUNT"] == 1
+    assert freeze_payload["SNAPSHOT_COUNT"] == 6
+    assert freeze_payload["MANIFEST_SHA256"] not in {"none", "uncollected", "0" * 64}
+    assert transport.calls == before_freeze_calls
     first_calls = list(transport.calls)
 
     restarted = FullHistoricalCollectionService(

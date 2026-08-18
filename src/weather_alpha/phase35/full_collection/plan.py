@@ -120,6 +120,13 @@ def run_offline_dataset_acceptance(
     code_commit: str = "unknown",
     manifest_sha256: str = "none",
 ) -> DatasetAuditResult:
+    """Synthetic offline audit helper for tests and phase35-dataset-acceptance.
+
+    This is not the production dataset freeze. It does not load persisted
+    collection artifacts or compute real ledger/corpus/audit hashes, and it
+    must not be used as a production freeze path. Production freeze is
+    ``build_production_dataset_freeze`` / ``phase35-freeze-dataset``.
+    """
     audit = audit_dataset(expected=expected, observations=observations)
     machine, human = build_dataset_audit_reports(audit)
     write_report_pair(

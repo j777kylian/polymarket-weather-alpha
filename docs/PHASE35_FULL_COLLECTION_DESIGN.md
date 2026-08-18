@@ -292,12 +292,14 @@ EVENT_COUNT
 SNAPSHOT_COUNT
 CHECKPOINT_COUNTS
 CITY_COUNTS
+STATION_COUNTS
+MONTH_COUNTS
 MISSINGNESS_SUMMARY
 QUARANTINE_SUMMARY
 KNOWN_LIMITATIONS
 ```
 
-Phase 4, if separately authorized, must consume the frozen `DATASET_ID` and hashes. It must not silently recollect, mutate, append to, or replace the training dataset. Freeze artifacts are not written while the audit fails.
+Production freeze is the offline command `phase35-freeze-dataset`. It consumes persisted collection artifacts under `<collection_root>/<collection_id>/` plus the authoritative machine audit JSON `reports/phase35_historical_audit.json`. `AUDIT_REPORT_SHA256` / `REPORT_SHA256` hashes that canonical JSON (not Markdown). `phase35-dataset-acceptance` remains a synthetic test helper and is not a production freeze. Freeze artifacts are not written while the audit fails. Phase 4, if separately authorized, must consume the frozen `DATASET_ID` and hashes. It must not silently recollect, mutate, append to, or replace the training dataset.
 
 ## 9. Forward track separation
 
@@ -341,13 +343,25 @@ uv run weather-alpha phase35-collect-historical \
   --authorization data/phase35/historical/manifests/<COLLECTION_ID>.authorization.json \
   --output-root data/phase35/historical
 
-# Offline dataset audit; no provider contact.
+# Offline dataset audit of a persisted collection; no provider contact.
+uv run weather-alpha phase35-audit-historical \
+  --collection-id <COLLECTION_ID> \
+  --collection-root data/phase35/historical
+
+# Production offline dataset freeze from persisted COMPLETE artifacts.
+# Refuses unless PHASE35_DATASET_READY and raw/audit integrity still hold.
+uv run weather-alpha phase35-freeze-dataset \
+  --collection-id <COLLECTION_ID> \
+  --collection-root data/phase35/historical
+
+# Synthetic offline dataset audit for tests only. Not a production freeze:
+# it does not load a collection namespace or hash real ledger/corpus artifacts.
 uv run weather-alpha phase35-dataset-acceptance \
   --manifest data/phase35/historical/manifests/<COLLECTION_ID>.json \
   --output-root data/phase35/historical
 ```
 
-The plan and authorize commands make no provider calls. Plan reports the v2 cap-bounded budget as passing pending final review and reports the theoretical envelope as `NOT_AUTHORIZED`. Budget preflight is not an execution grant. Collection execution exists in the orchestrator and is fail-closed without a valid persisted authorization receipt bound to the unchanged manifest digest. **No real collection has occurred.**
+The plan and authorize commands make no provider calls. Plan reports the v2 cap-bounded budget as passing pending final review and reports the theoretical envelope as `NOT_AUTHORIZED`. Budget preflight is not an execution grant. Collection execution exists in the orchestrator and is fail-closed without a valid persisted authorization receipt bound to the unchanged manifest digest. Dataset freeze is a separate offline operation over persisted artifacts and makes no provider calls. **No real collection has occurred.**
 
 ## Final design status
 

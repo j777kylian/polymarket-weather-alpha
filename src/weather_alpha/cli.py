@@ -41,6 +41,10 @@ from weather_alpha.phase35.full_collection.audit import (
     build_dataset_audit_reports,
 )
 from weather_alpha.phase35.full_collection.corpus import FullCollectionCorpusAssembler
+from weather_alpha.phase35.full_collection.freeze import (
+    DatasetFreezeStatus,
+    build_production_dataset_freeze,
+)
 from weather_alpha.phase35.full_collection.manifest import (
     ManifestAuthorizationError,
     create_authorization_receipt,
@@ -336,7 +340,13 @@ def phase35_full_collection_plan(start_date: str, end_date: str, manifest: Path)
 @click.option("--manifest", type=click.Path(path_type=Path), required=True)
 @click.option("--output-root", type=click.Path(path_type=Path), required=True)
 def phase35_dataset_acceptance(manifest: Path, output_root: Path) -> None:
-    """Offline dataset audit. No provider requests. Does not collect."""
+    """Synthetic offline dataset audit for tests. Not a production freeze.
+
+    Does not load a persisted collection namespace, does not hash real
+    ledger/corpus/audit artifacts, and does not call the production freeze
+    path. Use phase35-audit-historical then phase35-freeze-dataset for the
+    production offline freeze. No provider requests.
+    """
     del manifest
     audit = run_offline_dataset_acceptance(output_dir=output_root)
     click.echo(json.dumps(audit.as_dict(), indent=2, sort_keys=True))
@@ -466,4 +476,37 @@ def phase35_audit_historical(collection_id: str, collection_root: Path) -> None:
     )
     click.echo(json.dumps(audit.as_dict(), indent=2, sort_keys=True))
     if not audit.phase35_dataset_ready:
+        raise SystemExit(2)
+
+
+@main.command("phase35-freeze-dataset")
+@click.option("--collection-id", required=True)
+@click.option(
+    "--collection-root",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Offline collection namespace root. No provider contact.",
+)
+@click.option(
+    "--manifest",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional immutable manifest to re-verify against progress.manifest_sha256.",
+)
+def phase35_freeze_dataset(
+    collection_id: str, collection_root: Path, manifest: Path | None
+) -> None:
+    """Offline production dataset freeze from persisted collection artifacts.
+
+    Consumes a COMPLETE collection namespace and the authoritative machine
+    audit JSON. Does not contact providers and does not create a freeze when
+    PHASE35_DATASET_READY is false or artifacts fail integrity checks.
+    """
+    result = build_production_dataset_freeze(
+        collection_root=collection_root,
+        collection_id=collection_id,
+        manifest_path=manifest,
+    )
+    click.echo(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    if result.status is DatasetFreezeStatus.REFUSED:
         raise SystemExit(2)
