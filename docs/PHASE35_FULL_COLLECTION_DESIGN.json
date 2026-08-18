@@ -1,0 +1,145 @@
+{
+  "schema_version": "phase35-full-collection-design-v2-binding",
+  "status": "binding_pre_network_not_executed",
+  "request_policy_version": "phase35-full-collection-request-policy-v2",
+  "preflight_status": "PREFLIGHT_OK",
+  "full_collection_start_allowed": "YES_PENDING_FINAL_REVIEW",
+  "theoretical_envelope": "NOT_AUTHORIZED",
+  "basis": {
+    "phase35_freeze_commit": "662f11bab46fa6853a90ed18aa439c1da5fd1c88",
+    "window": {"start": "2026-03-01", "end": "2026-05-29", "inclusive_days": 90},
+    "cities": ["amsterdam", "london", "milan", "munich", "new york", "paris"],
+    "checkpoints": [48, 24, 12, 6, 3, 1],
+    "source_qualification": "sampled_source_qualified",
+    "not_claimed": ["exhaustively_source_proven", "model_ready"]
+  },
+  "retained_limitations": {
+    "GAMMA_SURVIVORSHIP_LIMITATION": true,
+    "HISTORICAL_UNIVERSE_COMPLETE": "not_proven",
+    "HISTORICAL_CLOB_MODE": "descriptive_only",
+    "FORWARD_COLLECTION_MODE": "separate_get_only_observed_order_book"
+  },
+  "scientific_unit": {
+    "unit": "canonical_weather_event_family",
+    "outcomes_are_independent_events": false,
+    "required_identity": ["canonical_event_id", "city", "station", "event_date", "native_settlement_unit", "complete_bucket_topology", "settlement_labels", "source_provenance"],
+    "invalid_topology_action": ["ineligible", "quarantine_with_reason"]
+  },
+  "checkpoints": {
+    "lead_hours": [48, 24, 12, 6, 3, 1],
+    "decision_ts": "local_event_midnight_minus_lead_converted_to_utc",
+    "forecast_rule": "open_meteo_single_runs/ecmwf_ifs; forecast.available_at <= decision_ts; choose_latest_eligible",
+    "price_rule": "price.observed_at <= decision_ts",
+    "prohibited_substitutes": ["open_meteo_archive", "stitched_historical_forecast", "later_forecast"]
+  },
+  "manifest": {
+    "immutable_before_network": true,
+    "fail_closed_on_budget_conflict": true,
+    "required_fields": ["COLLECTION_ID", "SCHEMA_VERSION", "CODE_COMMIT", "START_DATE", "END_DATE", "CITIES", "STATIONS", "CHECKPOINTS", "FORECAST_PROVIDER", "FORECAST_MODEL", "FORECAST_AVAILABILITY_RULE", "MARKET_PROVIDER", "PRICE_PROVIDER", "REQUEST_POLICY", "RATE_LIMIT_POLICY", "RETRY_POLICY", "RAW_STORAGE_NAMESPACE", "CREATED_AT"],
+    "raw_storage_namespace": "data/phase35/historical/raw/",
+    "resume_rule": "reuse_only_complete_immutable_request_identity_with_matching_hash_and_parser_version",
+    "no_scope_reduction_to_fit_caps": true
+  },
+  "request_policy": {
+    "http_method": "GET",
+    "timeout_seconds": 35,
+    "concurrency": 1,
+    "inter_attempt_delay_seconds": 2,
+    "retry_mode": "classification_triggered",
+    "not": "identity_count_times_two_prereservation",
+    "providers": {
+      "gamma": {"endpoint": "https://gamma-api.polymarket.com/public-search", "method": "GET"},
+      "clob": {"endpoint": "https://clob.polymarket.com/prices-history", "method": "GET"},
+      "ecmwf": {"endpoint": "https://single-runs-api.open-meteo.com/v1/forecast", "model": "ecmwf_ifs", "method": "GET"}
+    },
+    "http_client": "ReadOnlyHttpClient"
+  },
+  "retry_policy": {
+    "max_retries": 1,
+    "max_attempts_per_identity": 2,
+    "retry_mode": "classification_triggered",
+    "initial_get_per_identity": 1,
+    "additional_attempt_only_after": ["429", "timeout", "tls", "transient_transport", "transient_5xx"],
+    "never_retry": ["SUCCESS", "VALID_EMPTY", "PROVIDER_NO_DATA", "SCHEMA_ERROR", "INELIGIBLE", "permanent_deterministic_4xx", "persisted_immutable_success"],
+    "retry_only": ["429", "timeout", "tls", "transient_transport", "transient_5xx"],
+    "retry_after_cap_seconds": 60
+  },
+  "attempt_ledger": {
+    "http_method": "GET",
+    "required_fields": ["provider", "endpoint", "canonical_request_identity", "normalized_request_parameters", "attempt_number", "attempt_timestamp_utc", "latency_ms", "http_status", "retry_after_seconds", "content_sha256", "stable_raw_provenance_path", "parser_schema_version", "result_classification"],
+    "classifications": ["PENDING", "SUCCESS", "VALID_EMPTY", "PROVIDER_NO_DATA", "RATE_LIMITED", "TIMEOUT", "TLS_FAILURE", "TRANSIENT_TRANSPORT_FAILURE", "TRANSIENT_5XX", "HTTP_FAILURE", "SCHEMA_ERROR", "INELIGIBLE", "SKIPPED_ALREADY_COMPLETE", "INTERRUPTED_RESUMABLE"],
+    "transient_distinct_from_no_data": true,
+    "valid_empty_distinct_from_provider_no_data": true,
+    "stable_provenance_example": "historical/raw/<provider>/<yyyy-mm-dd>/<content-sha256>.json",
+    "forbidden_canonical_path_prefixes": ["/tmp/", "/Users/", "/home/"]
+  },
+  "planning_estimate": {
+    "requests": {"gamma": 540, "ecmwf_logical_planning_baseline": 4829, "clob": 540, "total_best_case": 5909},
+    "max_attempts_per_identity": 2,
+    "retry_mode": "classification_triggered",
+    "initial": {"gamma": 540, "ecmwf": 4829, "clob": 540, "total": 5909},
+    "retry_reserves": {"gamma": 60, "ecmwf": 5171, "clob": 60},
+    "cap_bounded_maxima": {"gamma": 600, "ecmwf": 9658, "clob": 600, "global": 10858},
+    "theoretical_all_transient_once": {"gamma": 1080, "ecmwf": 9658, "clob": 1080, "global": 11818},
+    "implied_max_attempts": {"gamma": 1080, "ecmwf": 9658, "clob": 1080, "global": 11818},
+    "concurrency": 1,
+    "pacing_seconds": 2,
+    "duration_floor": {"best_case_minutes_at_2s": 197.0, "worst_case_hours_at_2s": 8.65, "worst_case_hours_at_3s": 12.97, "review_envelope": "at_least_9_to_13_hours_plus_provider_retry_after_and_backoff"},
+    "v3_local_p95_raw_bytes": {"gamma": 2399899, "ecmwf": 4314, "clob": 1217},
+    "storage": {"p95_source_mix_raw_bytes": 1317434946, "index_report_reserve_fraction": 0.15, "reserved_total_bytes": 1515050188, "reserved_total_gib": 1.41, "required_free_space_gib_minimum": 2, "hard_cap_gib": 3}
+  },
+  "hard_caps": {
+    "gamma_attempts": 600,
+    "ecmwf_logical_identities": 5000,
+    "ecmwf_attempts": 10000,
+    "clob_attempts": 600,
+    "global_get_attempts": 11200,
+    "storage_preflight_min_gib": 2,
+    "storage_hard_cap_gib": 3
+  },
+  "budget_policy_v2": {
+    "status": "PREFLIGHT_OK",
+    "full_collection_start_allowed": "YES_PENDING_FINAL_REVIEW",
+    "network_authorized": false,
+    "collection_started": false,
+    "theoretical_envelope": "NOT_AUTHORIZED",
+    "theoretical_envelope_authorized": false,
+    "cap_exhaustion": "COLLECTION_STATUS=INTERRUPTED_RESUMABLE persist_ledger_and_missingness fail_closed",
+    "must_not": ["sample", "reduce_cities", "reduce_dates", "drop_checkpoints", "alter_scientific_scope", "silent_continuation", "reinterpret_missingness"]
+  },
+  "missingness_audit": {
+    "dimensions": ["DATE", "CITY", "STATION", "CHECKPOINT", "ECMWF_RUN_CYCLE", "EVENT_FAMILY", "PRICE_HISTORY", "MONTH"],
+    "fields": ["expected_count", "observed_count", "usable_count", "missing_count", "missing_fraction", "missing_reasons"],
+    "never_drop_missing_rows": true,
+    "missing_checkpoints_remain_in_denominator": true,
+    "systematic_cluster_views": ["consecutive_week_city_provider", "endpoint_status_exception", "station", "checkpoint", "event_topology", "month"],
+    "systematic_cluster_consecutive_days": 7,
+    "max_unresolved_systematic_clusters": 0
+  },
+  "phase35_dataset_ready_contract": {
+    "separate_from_phase35_collection_ready": true,
+    "evaluated_without_collecting": true,
+    "required_components": ["provenance_complete", "point_in_time_integrity", "topology_integrity", "settlement_availability_acceptable", "descriptive_price_coverage_acceptable", "coverage_policy_accepted", "no_unresolved_systematic_failure_cluster"],
+    "hard_invariants": {"future_leakage_count": 0, "retrospective_substitution_count": 0, "invalid_event_group_count": 0, "raw_provenance_hash_failures": 0},
+    "thresholds": {
+      "overall_coverage": 0.95,
+      "city_coverage": 0.90,
+      "lead_coverage": 0.90,
+      "month_coverage": 0.85,
+      "settlement_overall": 0.98,
+      "settlement_scored": 1.0,
+      "clob_overall": 0.85,
+      "clob_city": 0.75
+    },
+    "required_evaluations": ["overall_event_family", "city", "station", "month", "checkpoint", "provider_failure_clusters", "bucket_topology", "settlement", "descriptive_clob", "future_leakage", "retrospective_substitution", "provenance"]
+  },
+  "dataset_freeze": {"written_only_if_audit_passes": true, "required_fields": ["DATASET_ID", "COLLECTION_ID", "CODE_COMMIT", "MANIFEST_SHA256", "RAW_INDEX_SHA256", "CANONICAL_DATASET_SHA256", "REPORT_SHA256", "DATE_RANGE", "EVENT_COUNT", "SNAPSHOT_COUNT", "CHECKPOINT_COUNTS", "CITY_COUNTS", "MISSINGNESS_SUMMARY", "QUARANTINE_SUMMARY", "KNOWN_LIMITATIONS"], "phase4_input_rule": "consume_frozen_dataset_identity_only_no_silent_recollection_or_mutation"},
+  "commands": {
+    "plan": "uv run weather-alpha phase35-full-collection-plan --start-date 2026-03-01 --end-date 2026-05-29 --manifest data/phase35/historical/manifests/<COLLECTION_ID>.json",
+    "collect": "refused_while_YES_PENDING_FINAL_REVIEW_not_an_execution_grant",
+    "acceptance": "uv run weather-alpha phase35-dataset-acceptance --manifest data/phase35/historical/manifests/<COLLECTION_ID>.json --output-root data/phase35/historical",
+    "provider_calls": false
+  },
+  "execution_status": {"full_collection_started": false, "forward_continuous_collection_started": false, "daemon_started": false, "phase4_started": false, "paper_trading_started": false, "live_trading_started": false},
+  "next_recommended_action": "FINAL_REVIEW_BEFORE_COLLECTION_EXECUTION_GRANT"
+}

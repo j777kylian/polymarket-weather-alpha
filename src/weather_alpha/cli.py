@@ -36,6 +36,16 @@ from weather_alpha.config.settings import (
     validate_date_range,
 )
 from weather_alpha.http.readonly import ReadOnlyHttpClient
+from weather_alpha.phase35.full_collection.plan import (
+    refuse_historical_collection,
+    run_offline_dataset_acceptance,
+    validate_full_collection_plan,
+)
+from weather_alpha.phase35.full_collection.policy import (
+    END_DATE,
+    REQUEST_BUDGET_REDESIGN_REQUIRED,
+    START_DATE,
+)
 from weather_alpha.phase35.readiness import run_offline_readiness
 from weather_alpha.research.collect import Phase3CollectOptions, Phase3Collector
 from weather_alpha.research.run import load_quarantine, load_snapshots_from_jsonl, run_phase3
@@ -287,3 +297,48 @@ def phase35_readiness(output_root: Path) -> None:
     """Offline Phase 3.5 collection-readiness (fixtures only; no full collection)."""
     result = run_offline_readiness(output_dir=output_root)
     click.echo(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+
+
+@main.command("phase35-full-collection-plan")
+@click.option("--start-date", type=str, default=START_DATE, show_default=True)
+@click.option("--end-date", type=str, default=END_DATE, show_default=True)
+@click.option(
+    "--manifest",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Plan/preflight artifact path. Authorized collection manifest is not written when blocked.",
+)
+def phase35_full_collection_plan(start_date: str, end_date: str, manifest: Path) -> None:
+    """Validate the immutable full-collection contract. No provider requests."""
+    if start_date != START_DATE or end_date != END_DATE:
+        raise click.UsageError(
+            f"window is frozen to {START_DATE}..{END_DATE}; got {start_date}..{end_date}"
+        )
+    result = validate_full_collection_plan(manifest_path=manifest)
+    click.echo(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    if result.status == REQUEST_BUDGET_REDESIGN_REQUIRED:
+        raise SystemExit(2)
+
+
+@main.command("phase35-dataset-acceptance")
+@click.option("--manifest", type=click.Path(path_type=Path), required=True)
+@click.option("--output-root", type=click.Path(path_type=Path), required=True)
+def phase35_dataset_acceptance(manifest: Path, output_root: Path) -> None:
+    """Offline dataset audit. No provider requests. Does not collect."""
+    del manifest
+    audit = run_offline_dataset_acceptance(output_dir=output_root)
+    click.echo(json.dumps(audit.as_dict(), indent=2, sort_keys=True))
+    if not audit.phase35_dataset_ready:
+        raise SystemExit(2)
+
+
+@main.command("phase35-collect-historical")
+@click.option("--manifest", type=click.Path(path_type=Path), required=True)
+@click.option("--output-root", type=click.Path(path_type=Path), required=True)
+@click.option("--resume", is_flag=True, default=False)
+def phase35_collect_historical(manifest: Path, output_root: Path, resume: bool) -> None:
+    """Refuse live collection until final review; not an execution grant."""
+    del manifest, output_root, resume
+    payload = refuse_historical_collection()
+    click.echo(json.dumps(payload, indent=2, sort_keys=True))
+    raise SystemExit(2)
