@@ -1,6 +1,8 @@
-"""Frozen pre-network Phase 3.5 full historical collection policy.
+"""Frozen Phase 3.5 full historical collection policy.
 
-Binding authorization for this pass. Not a collection execution grant.
+Budget preflight is not a collection execution grant. Real provider execution
+requires a separately persisted authorization receipt bound to an immutable
+manifest. No real collection has occurred.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from weather_alpha.phase35.config import PRE_REGISTERED_CHECKPOINT_HOURS
 
 SCHEMA_VERSION: Final = "phase35-full-collection-manifest-v1"
 PARSER_SCHEMA_VERSION: Final = "phase35-full-collection-parser-v1"
+AUTHORIZATION_SCHEMA_VERSION: Final = "phase35-full-collection-authorization-v1"
 HASH_ALGORITHM: Final = "sha256"
 
 START_DATE: Final = "2026-03-01"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
@@ -40,6 +41,30 @@ class ExpectedCell:
     month: str
     ecmwf_run_cycle: str | None = None
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "checkpoint": self.checkpoint,
+            "city": self.city,
+            "date": self.date,
+            "ecmwf_run_cycle": self.ecmwf_run_cycle,
+            "event_family_id": self.event_family_id,
+            "month": self.month,
+            "station": self.station,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> ExpectedCell:
+        cycle = payload.get("ecmwf_run_cycle")
+        return cls(
+            date=str(payload["date"]),
+            city=str(payload["city"]),
+            station=str(payload["station"]),
+            checkpoint=int(payload["checkpoint"]),
+            event_family_id=str(payload["event_family_id"]),
+            month=str(payload["month"]),
+            ecmwf_run_cycle=None if cycle is None else str(cycle),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class DatasetObservation:
@@ -61,6 +86,53 @@ class DatasetObservation:
     topology_valid: bool
     topology_reviewed_quarantine: bool
     missing_reasons: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "checkpoint": self.checkpoint,
+            "city": self.city,
+            "date": self.date,
+            "ecmwf_run_cycle": self.ecmwf_run_cycle,
+            "event_family_id": self.event_family_id,
+            "future_leakage": self.future_leakage,
+            "has_price_history": self.has_price_history,
+            "has_settlement": self.has_settlement,
+            "missing_reasons": list(self.missing_reasons),
+            "month": self.month,
+            "observed": self.observed,
+            "raw_hash_ok": self.raw_hash_ok,
+            "retrospective_substitution": self.retrospective_substitution,
+            "scored": self.scored,
+            "station": self.station,
+            "topology_reviewed_quarantine": self.topology_reviewed_quarantine,
+            "topology_valid": self.topology_valid,
+            "usable": self.usable,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> DatasetObservation:
+        cycle = payload.get("ecmwf_run_cycle")
+        reasons = payload.get("missing_reasons") or ()
+        return cls(
+            date=str(payload["date"]),
+            city=str(payload["city"]),
+            station=str(payload["station"]),
+            checkpoint=int(payload["checkpoint"]),
+            event_family_id=str(payload["event_family_id"]),
+            month=str(payload["month"]),
+            ecmwf_run_cycle=None if cycle is None else str(cycle),
+            observed=bool(payload["observed"]),
+            usable=bool(payload["usable"]),
+            has_settlement=bool(payload["has_settlement"]),
+            scored=bool(payload["scored"]),
+            has_price_history=bool(payload["has_price_history"]),
+            future_leakage=bool(payload["future_leakage"]),
+            retrospective_substitution=bool(payload["retrospective_substitution"]),
+            raw_hash_ok=bool(payload["raw_hash_ok"]),
+            topology_valid=bool(payload["topology_valid"]),
+            topology_reviewed_quarantine=bool(payload["topology_reviewed_quarantine"]),
+            missing_reasons=tuple(str(item) for item in reasons),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -428,7 +500,11 @@ def point_in_time_flags(
     return future_forecast, future_price, selected.rejection_reasons
 
 
-def build_dataset_audit_reports(audit: DatasetAuditResult) -> tuple[dict[str, Any], str]:
+def build_dataset_audit_reports(
+    audit: DatasetAuditResult,
+    *,
+    collection_not_executed: bool = True,
+) -> tuple[dict[str, Any], str]:
     machine = research_contract(
         measured_data={
             "PHASE35_DATASET_READY": audit.phase35_dataset_ready,
@@ -462,7 +538,7 @@ def build_dataset_audit_reports(audit: DatasetAuditResult) -> tuple[dict[str, An
         missing_data={"blocked_reasons": list(audit.blocked_reasons)},
         inferences={
             "PHASE35_DATASET_READY": audit.phase35_dataset_ready,
-            "collection_not_executed": True,
+            "collection_not_executed": collection_not_executed,
         },
         limitations={
             "GAMMA_SURVIVORSHIP_LIMITATION": True,

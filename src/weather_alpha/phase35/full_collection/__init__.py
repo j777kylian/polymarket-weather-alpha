@@ -1,7 +1,10 @@
-"""Phase 3.5 full historical collection pre-network contract.
+"""Phase 3.5 full historical collection machinery.
 
-GET-only research machinery. Request-budget policy v2 passes preflight as
-YES_PENDING_FINAL_REVIEW. Live collection is not an execution grant.
+GET-only research orchestrator. Request-budget policy v2 passes preflight as
+YES_PENDING_FINAL_REVIEW. Real provider execution is disabled unless an
+explicitly authorized immutable manifest passes its persisted integrity-anchor
+checks. Manifest creation, authorization, and collection execution are separate
+operations. No real collection has occurred.
 """
 
 from __future__ import annotations

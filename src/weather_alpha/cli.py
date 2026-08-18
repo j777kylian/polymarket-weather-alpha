@@ -36,8 +36,19 @@ from weather_alpha.config.settings import (
     validate_date_range,
 )
 from weather_alpha.http.readonly import ReadOnlyHttpClient
+from weather_alpha.phase35.full_collection.audit import (
+    audit_dataset,
+    build_dataset_audit_reports,
+)
+from weather_alpha.phase35.full_collection.corpus import FullCollectionCorpusAssembler
+from weather_alpha.phase35.full_collection.manifest import (
+    ManifestAuthorizationError,
+    create_authorization_receipt,
+    load_authorized_manifest,
+    resolve_code_commit,
+)
+from weather_alpha.phase35.full_collection.orchestrator import FullHistoricalCollectionService
 from weather_alpha.phase35.full_collection.plan import (
-    refuse_historical_collection,
     run_offline_dataset_acceptance,
     validate_full_collection_plan,
 )
@@ -48,6 +59,7 @@ from weather_alpha.phase35.full_collection.policy import (
 )
 from weather_alpha.phase35.readiness import run_offline_readiness
 from weather_alpha.research.collect import Phase3CollectOptions, Phase3Collector
+from weather_alpha.research.reports import write_report_pair
 from weather_alpha.research.run import load_quarantine, load_snapshots_from_jsonl, run_phase3
 from weather_alpha.storage.repository import WeatherAlphaRepository
 
@@ -332,13 +344,126 @@ def phase35_dataset_acceptance(manifest: Path, output_root: Path) -> None:
         raise SystemExit(2)
 
 
+@main.command("phase35-authorize-historical")
+@click.option("--manifest", type=click.Path(path_type=Path), required=True)
+@click.option(
+    "--authorization",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Destination for the persisted authorization receipt. Offline; does not collect.",
+)
+def phase35_authorize_historical(manifest: Path, authorization: Path) -> None:
+    """Write a persisted authorization receipt. Does not mutate the manifest or network."""
+    try:
+        receipt = create_authorization_receipt(
+            manifest_path=manifest,
+            destination=authorization,
+            expected_code_commit=resolve_code_commit(),
+        )
+    except (ManifestAuthorizationError, ValueError) as exc:
+        click.echo(
+            json.dumps(
+                {
+                    "PROVIDER_REQUESTS": 0,
+                    "collection_started": False,
+                    "network_authorized": False,
+                    "reason": str(exc),
+                    "status": "REFUSED",
+                    "written": False,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        raise SystemExit(2) from exc
+    click.echo(
+        json.dumps(
+            {
+                "PROVIDER_REQUESTS": 0,
+                "authorization_schema_version": receipt.schema_version,
+                "collection_id": receipt.collection_id,
+                "collection_started": False,
+                "manifest_sha256": receipt.manifest_sha256,
+                "status": "AUTHORIZED",
+                "written": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 @main.command("phase35-collect-historical")
 @click.option("--manifest", type=click.Path(path_type=Path), required=True)
+@click.option(
+    "--authorization",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Persisted authorization receipt bound to the immutable manifest digest.",
+)
 @click.option("--output-root", type=click.Path(path_type=Path), required=True)
 @click.option("--resume", is_flag=True, default=False)
-def phase35_collect_historical(manifest: Path, output_root: Path, resume: bool) -> None:
-    """Refuse live collection until final review; not an execution grant."""
-    del manifest, output_root, resume
-    payload = refuse_historical_collection()
-    click.echo(json.dumps(payload, indent=2, sort_keys=True))
-    raise SystemExit(2)
+def phase35_collect_historical(
+    manifest: Path, authorization: Path, output_root: Path, resume: bool
+) -> None:
+    """Execute only when a persisted authorization receipt verifies the immutable manifest."""
+    del resume
+    try:
+        loaded = load_authorized_manifest(
+            manifest,
+            authorization_path=authorization,
+            expected_code_commit=resolve_code_commit(),
+        )
+    except ManifestAuthorizationError as exc:
+        click.echo(
+            json.dumps(
+                {
+                    "PROVIDER_REQUESTS": 0,
+                    "collection_started": False,
+                    "network_authorized": False,
+                    "reason": str(exc),
+                    "status": "REFUSED",
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        raise SystemExit(2) from exc
+    result = FullHistoricalCollectionService(
+        manifest_path=manifest,
+        authorization_path=authorization,
+        collection_root=output_root,
+        http=ReadOnlyHttpClient(),
+        expected_code_commit=loaded.code_commit,
+    ).run()
+    click.echo(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    if result.stage.value in {"INTERRUPTED_RESUMABLE", "FAILED_INTEGRITY"}:
+        raise SystemExit(2)
+
+
+@main.command("phase35-audit-historical")
+@click.option("--collection-id", required=True)
+@click.option(
+    "--collection-root",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Offline collection namespace root. No provider contact.",
+)
+def phase35_audit_historical(collection_id: str, collection_root: Path) -> None:
+    """Offline corpus assembler + dataset audit for a persisted collection namespace."""
+    corpus = FullCollectionCorpusAssembler(
+        collection_root=collection_root,
+        collection_id=collection_id,
+    ).assemble()
+    audit = audit_dataset(expected=corpus.expected, observations=corpus.observations)
+    reports_dir = collection_root / collection_id / "reports"
+    machine, human = build_dataset_audit_reports(audit, collection_not_executed=False)
+    write_report_pair(
+        reports_dir / "phase35_historical_audit.md",
+        reports_dir / "phase35_historical_audit.json",
+        human,
+        machine,
+    )
+    click.echo(json.dumps(audit.as_dict(), indent=2, sort_keys=True))
+    if not audit.phase35_dataset_ready:
+        raise SystemExit(2)

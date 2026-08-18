@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,21 @@ def stations_for_city(city: str, stations: tuple[Station, ...]) -> tuple[Station
     if not matched:
         raise ValueError(f"station catalog has no station for city {city!r}")
     return matched
+
+
+def gamma_search_query(city: str, day: str) -> str:
+    year, month, date_day = (int(part) for part in day.split("-"))
+    month_name = calendar.month_name[month]
+    return f"highest temperature in {city} on {month_name} {date_day}, {year}"
+
+
+def gamma_search_params(city: str, day: str) -> dict[str, Any]:
+    return {
+        "q": gamma_search_query(city, day),
+        "page": 1,
+        "limit_per_type": 50,
+        "keep_closed_markets": 1,
+    }
 
 
 def gamma_identities(

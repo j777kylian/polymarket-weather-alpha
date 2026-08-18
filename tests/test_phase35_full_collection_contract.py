@@ -1198,15 +1198,17 @@ def test_cli_plan_and_collect_refuse_without_provider_calls(tmp_path: Path) -> N
             "phase35-collect-historical",
             "--manifest",
             str(manifest),
+            "--authorization",
+            str(tmp_path / "missing-authorization.json"),
             "--output-root",
             str(tmp_path / "out"),
         ],
     )
     assert collect.exit_code == 2
-    assert YES_PENDING_FINAL_REVIEW in collect.output
     assert "collection_started" in collect.output
     assert "false" in collect.output.lower()
-    assert "NOT_AUTHORIZED" in collect.output
+    assert '"PROVIDER_REQUESTS": 0' in collect.output
+    assert "REFUSED" in collect.output
     accept = runner.invoke(
         main,
         [

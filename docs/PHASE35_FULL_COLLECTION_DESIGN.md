@@ -1,6 +1,6 @@
 # Phase 3.5 full historical collection design
 
-**Status:** binding pre-network contract implemented under `REQUEST_POLICY_VERSION = phase35-full-collection-request-policy-v2`. Request-budget preflight **passes** the classification-triggered initial-plus-reserve cap-bounded policy. `FULL_COLLECTION_START_ALLOWED = YES_PENDING_FINAL_REVIEW`. The theoretical all-transient-once envelope is **NOT AUTHORIZED**. Collection is **not started** and this pass is **not** a live execution grant.
+**Status:** executable full-collection orchestrator implemented under `REQUEST_POLICY_VERSION = phase35-full-collection-request-policy-v2`. Request-budget preflight **passes** the classification-triggered initial-plus-reserve cap-bounded policy. `FULL_COLLECTION_START_ALLOWED = YES_PENDING_FINAL_REVIEW`. The theoretical all-transient-once envelope is **NOT AUTHORIZED**. Real provider execution is **disabled** unless an explicitly authorized immutable manifest passes its persisted integrity-anchor checks (manifest SHA-256 bound by a separately created authorization receipt). Manifest creation, authorization, and collection execution are separate operations. **No real collection has occurred.**
 
 ## Scope and retained limitations
 
@@ -14,7 +14,7 @@
 - Historical CLOB `/prices-history` values are `DESCRIPTIVE_ONLY`, never bid, ask, fill, or realized execution price.
 - Historical descriptive collection and forward observed order-book collection remain separate tracks. This document does not authorize forward collection, orders, cancellations, wallets, signing, private keys, transactions, paper trading, live trading, a daemon, or Phase 4.
 
-This design is based on the accepted Phase 3.5 freeze commit `662f11bab46fa6853a90ed18aa439c1da5fd1c88` plus the binding pre-network authorization for this pass. Frozen Phase 3 semantics and accepted Phase 3.5 readiness rules are unchanged. `PHASE35_COLLECTION_READY` remains infrastructure/source readiness and is not `PHASE35_DATASET_READY`.
+This design is based on the accepted Phase 3.5 freeze commit `662f11bab46fa6853a90ed18aa439c1da5fd1c88` plus the v2 request-policy contract. An executable full-collection orchestrator exists; real provider execution is disabled unless an explicitly authorized immutable manifest passes its persisted integrity-anchor checks. Frozen Phase 3 semantics and accepted Phase 3.5 readiness rules are unchanged. `PHASE35_COLLECTION_READY` remains infrastructure/source readiness and is not `PHASE35_DATASET_READY`. No real collection has occurred.
 
 ## 1. Scientific unit and identity
 
@@ -316,18 +316,29 @@ track=OBSERVED_ORDER_BOOK
 
 No type conversion is allowed from historical descriptive CLOB probability to an executable price. Forward activity remains GET-only/read-only and is outside this collection design.
 
-## 10. Commands — plan/audit implemented offline; live collection refused pending final review
+## 10. Commands — plan, authorize, and collect are separate; no real collection has occurred
 
 ```bash
-# Creates/validates the immutable contract only; no collection request.
+# 1. Create/validate the immutable contract only; no collection request and no authorization receipt.
 uv run weather-alpha phase35-full-collection-plan \
   --start-date 2026-03-01 \
   --end-date 2026-05-29 \
   --manifest data/phase35/historical/manifests/<COLLECTION_ID>.json
 
-# Live collection is not an execution grant while FULL_COLLECTION_START_ALLOWED=YES_PENDING_FINAL_REVIEW.
+# 2. Explicit offline authorization. Writes a persisted receipt bound to the
+#    manifest digest. Does not mutate the manifest and does not contact providers.
+uv run weather-alpha phase35-authorize-historical \
+  --manifest data/phase35/historical/manifests/<COLLECTION_ID>.json \
+  --authorization data/phase35/historical/manifests/<COLLECTION_ID>.authorization.json
+
+# 3. Collection execution requires both artifacts. Real provider GETs occur only
+#    after the receipt's COLLECTION_ID, MANIFEST_SHA256, CODE_COMMIT, and
+#    REQUEST_POLICY_VERSION match the recomputed immutable manifest and the
+#    current frozen runtime contract. Absent/mismatched artifacts fail closed
+#    with PROVIDER_REQUESTS=0.
 uv run weather-alpha phase35-collect-historical \
   --manifest data/phase35/historical/manifests/<COLLECTION_ID>.json \
+  --authorization data/phase35/historical/manifests/<COLLECTION_ID>.authorization.json \
   --output-root data/phase35/historical
 
 # Offline dataset audit; no provider contact.
@@ -336,7 +347,7 @@ uv run weather-alpha phase35-dataset-acceptance \
   --output-root data/phase35/historical
 ```
 
-The plan and acceptance commands make no provider calls. Plan reports the v2 cap-bounded budget as passing pending final review and reports the theoretical envelope as `NOT_AUTHORIZED`. Collection remains refused: not started, network not authorized, no provider collector invoked.
+The plan and authorize commands make no provider calls. Plan reports the v2 cap-bounded budget as passing pending final review and reports the theoretical envelope as `NOT_AUTHORIZED`. Budget preflight is not an execution grant. Collection execution exists in the orchestrator and is fail-closed without a valid persisted authorization receipt bound to the unchanged manifest digest. **No real collection has occurred.**
 
 ## Final design status
 
@@ -344,6 +355,8 @@ The plan and acceptance commands make no provider calls. Plan reports the v2 cap
 POLICY_STATUS = BINDING
 REQUEST_POLICY_VERSION = phase35-full-collection-request-policy-v2
 FULL_COLLECTION_STARTED = NO
+EXECUTABLE_ORCHESTRATOR = YES
+REAL_PROVIDER_EXECUTION = DISABLED_UNLESS_PERSISTED_AUTHORIZATION_VERIFIES
 FULL_COLLECTION_START_ALLOWED = YES_PENDING_FINAL_REVIEW
 FORWARD_CONTINUOUS_COLLECTION_STARTED = NO
 DAEMON_STARTED = NO
@@ -352,5 +365,5 @@ PAPER_TRADING_STARTED = NO
 LIVE_TRADING_STARTED = NO
 PREFLIGHT_STATUS = PREFLIGHT_OK
 THEORETICAL_ENVELOPE = NOT_AUTHORIZED
-NEXT_RECOMMENDED_ACTION = FINAL_REVIEW_BEFORE_COLLECTION_EXECUTION_GRANT
+NEXT_RECOMMENDED_ACTION = EXPLICIT_AUTHORIZATION_RECEIPT_THEN_COLLECTION_EXECUTION
 ```
