@@ -361,7 +361,41 @@ uv run weather-alpha phase35-dataset-acceptance \
   --output-root data/phase35/historical
 ```
 
-The plan and authorize commands make no provider calls. Plan reports the v2 cap-bounded budget as passing pending final review and reports the theoretical envelope as `NOT_AUTHORIZED`. Budget preflight is not an execution grant. Collection execution exists in the orchestrator and is fail-closed without a valid persisted authorization receipt bound to the unchanged manifest digest. Dataset freeze is a separate offline operation over persisted artifacts and makes no provider calls. **No real collection has occurred.**
+The plan and authorize commands make no provider calls. Plan reports the v2 cap-bounded budget as passing pending final review and reports the theoretical envelope as `NOT_AUTHORIZED`. Budget preflight is not an execution grant. Collection execution exists in the orchestrator and is fail-closed without a valid persisted authorization receipt bound to the unchanged manifest digest. Dataset freeze is a separate offline operation over persisted artifacts and makes no provider calls.
+
+## 11. CLOB request-contract repair and CLOB-only recovery overlay
+
+The CLOB `/prices-history` planner emits `market`, `startTs`, `endTs`, and `fidelity=60` (the Phase 3 absolute-range form). Window rule: `endTs = decision_timestamp(date, tz, 1)` and `startTs = decision_timestamp(date, tz, 48) - 48h`. Corrected identities hash those four fields (`clob:range:<digest>`) and are not identical to the legacy `clob:{city}:{date}` identity. PIT selection remains `observed_at <= decision_ts`.
+
+CLOB-only recovery is a separate overlay. It derives targets only from persisted parent ledger `HTTP_FAILURE` CLOB rows (expected parent scale 435). Recovery artifacts live under `data/phase35/historical/recoveries/<RECOVERY_ID>/`. Manifest creation, authorization, and execution remain separate; missing/tampered authorization refuses with zero provider requests. A caller boolean cannot enable networking. Caps are unchanged (CLOB attempts <= 600). Recovery does not rewrite parent collection artifacts.
+
+Merged audit evaluates parent Gamma/ECMWF plus recovered CLOB under the same frozen `PHASE35_DATASET_READY` thresholds. A production freeze over a recovered corpus records `RECOVERY_LINEAGE` (parent collection id + recovery id/evidence). HTTP_FAILURE body persistence is deferred (`HTTP_FAILURE_BODY_PERSISTENCE_DEFERRED=YES`); it would change ledger provenance for permanent 4xx without changing scientific selection.
+
+```bash
+uv run weather-alpha phase35-plan-clob-recovery \
+  --parent-collection-id <PARENT_COLLECTION_ID> \
+  --parent-collection-root data/phase35/historical/collections \
+  --parent-manifest data/phase35/historical/manifest.json \
+  --manifest data/phase35/historical/recoveries/<RECOVERY_ID>.json
+
+uv run weather-alpha phase35-authorize-clob-recovery \
+  --manifest data/phase35/historical/recoveries/<RECOVERY_ID>.json \
+  --authorization data/phase35/historical/recoveries/<RECOVERY_ID>.authorization.json
+
+uv run weather-alpha phase35-execute-clob-recovery \
+  --manifest data/phase35/historical/recoveries/<RECOVERY_ID>.json \
+  --authorization data/phase35/historical/recoveries/<RECOVERY_ID>.authorization.json \
+  --recovery-root data/phase35/historical/recoveries \
+  --parent-collection-root data/phase35/historical/collections
+
+uv run weather-alpha phase35-audit-recovered \
+  --recovery-id <RECOVERY_ID> \
+  --recovery-root data/phase35/historical/recoveries \
+  --parent-collection-root data/phase35/historical/collections \
+  --parent-collection-id <PARENT_COLLECTION_ID>
+```
+
+This pass does not create a production recovery manifest, receipt, or dataset freeze.
 
 ## Final design status
 

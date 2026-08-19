@@ -61,6 +61,14 @@ from weather_alpha.phase35.full_collection.policy import (
     REQUEST_BUDGET_REDESIGN_REQUIRED,
     START_DATE,
 )
+from weather_alpha.phase35.full_collection.recovery import (
+    ClobRecoveryService,
+    RecoveryAuthorizationError,
+    create_clob_recovery_authorization_receipt,
+    create_clob_recovery_manifest,
+    load_authorized_recovery_manifest,
+    merge_parent_and_recovery,
+)
 from weather_alpha.phase35.readiness import run_offline_readiness
 from weather_alpha.research.collect import Phase3CollectOptions, Phase3Collector
 from weather_alpha.research.reports import write_report_pair
@@ -509,4 +517,175 @@ def phase35_freeze_dataset(
     )
     click.echo(json.dumps(result.as_dict(), indent=2, sort_keys=True))
     if result.status is DatasetFreezeStatus.REFUSED:
+        raise SystemExit(2)
+
+
+@main.command("phase35-plan-clob-recovery")
+@click.option("--parent-collection-id", required=True)
+@click.option(
+    "--parent-collection-root",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Offline parent collection root. No provider contact.",
+)
+@click.option(
+    "--parent-manifest",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Optional parent immutable manifest used to bind PARENT_CODE_COMMIT/SHA.",
+)
+@click.option("--manifest", type=click.Path(path_type=Path), required=True)
+@click.option("--code-commit", default=None)
+def phase35_plan_clob_recovery(
+    parent_collection_id: str,
+    parent_collection_root: Path,
+    parent_manifest: Path | None,
+    manifest: Path,
+    code_commit: str | None,
+) -> None:
+    """Write an immutable CLOB-only recovery plan. Offline; does not collect."""
+    try:
+        created = create_clob_recovery_manifest(
+            destination=manifest,
+            parent_collection_root=parent_collection_root,
+            parent_collection_id=parent_collection_id,
+            parent_manifest_path=parent_manifest,
+            code_commit=code_commit,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        click.echo(
+            json.dumps(
+                {
+                    "PROVIDER_REQUESTS": 0,
+                    "reason": str(exc),
+                    "status": "REFUSED",
+                    "written": False,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        raise SystemExit(2) from exc
+    click.echo(json.dumps(created.as_dict(), indent=2, sort_keys=True))
+
+
+@main.command("phase35-authorize-clob-recovery")
+@click.option("--manifest", type=click.Path(path_type=Path), required=True)
+@click.option("--authorization", type=click.Path(path_type=Path), required=True)
+@click.option("--code-commit", default=None)
+def phase35_authorize_clob_recovery(
+    manifest: Path, authorization: Path, code_commit: str | None
+) -> None:
+    """Write a recovery authorization receipt. Offline; does not collect."""
+    try:
+        receipt = create_clob_recovery_authorization_receipt(
+            manifest_path=manifest,
+            destination=authorization,
+            expected_code_commit=code_commit or resolve_code_commit(),
+        )
+    except (RecoveryAuthorizationError, ValueError) as exc:
+        click.echo(
+            json.dumps(
+                {
+                    "PROVIDER_REQUESTS": 0,
+                    "reason": str(exc),
+                    "status": "REFUSED",
+                    "written": False,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        raise SystemExit(2) from exc
+    click.echo(
+        json.dumps(
+            {
+                "PROVIDER_REQUESTS": 0,
+                "recovery_id": receipt.recovery_id,
+                "recovery_manifest_sha256": receipt.recovery_manifest_sha256,
+                "status": "AUTHORIZED",
+                "written": True,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
+@main.command("phase35-execute-clob-recovery")
+@click.option("--manifest", type=click.Path(path_type=Path), required=True)
+@click.option("--authorization", type=click.Path(path_type=Path), required=True)
+@click.option("--recovery-root", type=click.Path(path_type=Path), required=True)
+@click.option("--parent-collection-root", type=click.Path(path_type=Path), required=True)
+@click.option("--code-commit", default=None)
+def phase35_execute_clob_recovery(
+    manifest: Path,
+    authorization: Path,
+    recovery_root: Path,
+    parent_collection_root: Path,
+    code_commit: str | None,
+) -> None:
+    """Execute CLOB-only recovery when a persisted recovery receipt verifies the plan."""
+    commit = code_commit or resolve_code_commit()
+    try:
+        loaded = load_authorized_recovery_manifest(
+            manifest,
+            authorization_path=authorization,
+            expected_code_commit=commit,
+        )
+    except RecoveryAuthorizationError as exc:
+        click.echo(
+            json.dumps(
+                {
+                    "PROVIDER_REQUESTS": 0,
+                    "reason": str(exc),
+                    "status": "REFUSED",
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        raise SystemExit(2) from exc
+    result = ClobRecoveryService(
+        manifest_path=manifest,
+        authorization_path=authorization,
+        recovery_root=recovery_root,
+        parent_collection_root=parent_collection_root,
+        http=ReadOnlyHttpClient(),
+        expected_code_commit=loaded.code_commit,
+    ).run()
+    click.echo(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+    if result.stage.value in {"INTERRUPTED_RESUMABLE", "FAILED_INTEGRITY"}:
+        raise SystemExit(2)
+
+
+@main.command("phase35-audit-recovered")
+@click.option("--recovery-id", required=True)
+@click.option("--recovery-root", type=click.Path(path_type=Path), required=True)
+@click.option("--parent-collection-root", type=click.Path(path_type=Path), required=True)
+@click.option("--parent-collection-id", required=True)
+def phase35_audit_recovered(
+    recovery_id: str,
+    recovery_root: Path,
+    parent_collection_root: Path,
+    parent_collection_id: str,
+) -> None:
+    """Merge parent Gamma/ECMWF with recovery CLOB and run the frozen dataset audit."""
+    merged = merge_parent_and_recovery(
+        parent_collection_root=parent_collection_root,
+        parent_collection_id=parent_collection_id,
+        recovery_root=recovery_root,
+        recovery_id=recovery_id,
+    )
+    audit = audit_dataset(expected=merged.expected, observations=merged.observations)
+    reports_dir = recovery_root / recovery_id / "reports"
+    machine, human = build_dataset_audit_reports(audit, collection_not_executed=False)
+    write_report_pair(
+        reports_dir / "phase35_historical_audit.md",
+        reports_dir / "phase35_historical_audit.json",
+        human,
+        machine,
+    )
+    click.echo(json.dumps(audit.as_dict(), indent=2, sort_keys=True))
+    if not audit.phase35_dataset_ready:
         raise SystemExit(2)

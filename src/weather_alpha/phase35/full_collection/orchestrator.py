@@ -36,6 +36,7 @@ from weather_alpha.phase35.full_collection.budget import (
     enforce_request_budget,
     estimate_full_collection_budget,
 )
+from weather_alpha.phase35.full_collection.clob_contract import plan_clob_gets
 from weather_alpha.phase35.full_collection.executor import (
     AttemptOutcome,
     BoundedGetExecutor,
@@ -54,13 +55,11 @@ from weather_alpha.phase35.full_collection.manifest import (
 )
 from weather_alpha.phase35.full_collection.policy import (
     CHECKPOINTS,
-    CLOB_ENDPOINT,
     ECMWF_ENDPOINT,
     FORECAST_MODEL,
     FORECAST_PROVIDER,
     GAMMA_ENDPOINT,
     MARKET_PROVIDER,
-    PRICE_PROVIDER,
     PRICE_SELECTION_RULE,
     STORAGE_HARD_CAP_BYTES,
     STORAGE_PREFLIGHT_MIN_BYTES,
@@ -274,15 +273,17 @@ class FullHistoricalCollectionService:
             _persist_json(namespace / "parsed" / "clob.json", clob_parsed)
             self._stage = CollectionStage.CORPUS_ASSEMBLY
             _write_progress(namespace, authorized, self._stage, clock=self._clock())
-            observations = self._select_and_observe(
+            observations = assemble_dataset_observations(
                 expected=expected,
                 families=families,
                 ecmwf_parsed=ecmwf_parsed,
                 ecmwf_map=ecmwf_map,
                 clob_parsed=clob_parsed,
                 clob_map=clob_map,
-                namespace=namespace,
-                ledger=ledger,
+                ecmwf_namespace=namespace,
+                clob_namespace=namespace,
+                ecmwf_ledger=ledger,
+                clob_ledger=ledger,
             )
             _persist_json(
                 namespace / "selections" / "pit.json",
@@ -511,27 +512,8 @@ class FullHistoricalCollectionService:
         expected: tuple[ExpectedCell, ...],
         families: list[dict[str, Any]],
     ) -> tuple[list[PlannedGet], dict[str, list[dict[str, Any]]]]:
-        family_index = {row["event_family_id"]: row for row in families}
-        plans: dict[str, PlannedGet] = {}
-        mapping: dict[str, list[dict[str, Any]]] = {}
-        for cell in expected:
-            family = family_index.get(cell.event_family_id)
-            if family is None:
-                continue
-            tokens = list(family.get("yes_token_ids") or [])
-            if not tokens:
-                continue
-            identity = f"clob:{cell.city}:{cell.date}"
-            if identity not in plans:
-                plans[identity] = PlannedGet(
-                    identity=identity,
-                    provider=PRICE_PROVIDER,
-                    endpoint=CLOB_ENDPOINT,
-                    day=cell.date,
-                    params={"fidelity": 60, "market": tokens[0]},
-                )
-            mapping.setdefault(identity, []).append(cell.as_dict())
-        return list(plans.values()), mapping
+        del self
+        return plan_clob_gets(expected, families)
 
     def _collect_gets(
         self,
@@ -573,30 +555,7 @@ class FullHistoricalCollectionService:
                     }
                 )
             else:
-                schema_status = None
-                points: list[dict[str, Any]] = []
-                if payload is not None:
-                    schema = validate_prices_history_payload(payload)
-                    schema_status = schema.status
-                    if schema.status == "ok":
-                        try:
-                            for point in parse_price_history_points(payload):
-                                points.append(
-                                    {
-                                        "observed_at": point.observed_at.isoformat(),
-                                        "price": point.price,
-                                    }
-                                )
-                        except ProviderSchemaError:
-                            schema_status = "malformed"
-                row.update(
-                    {
-                        "points": points,
-                        "price_semantics": "DESCRIPTIVE_ONLY",
-                        "price_selection_rule": PRICE_SELECTION_RULE,
-                        "schema_status": schema_status,
-                    }
-                )
+                row.update(parse_clob_points(payload))
             assert_text_has_no_machine_roots(json.dumps(row, sort_keys=True, default=str))
             parsed.append(row)
         return parsed
@@ -613,159 +572,25 @@ class FullHistoricalCollectionService:
         namespace: Path,
         ledger: AppendOnlyLedger,
     ) -> list[DatasetObservation]:
-        family_index = {row["event_family_id"]: row for row in families}
-        ecmwf_by_id = {row["identity"]: row for row in ecmwf_parsed}
-        clob_by_id = {row["identity"]: row for row in clob_parsed}
-        cell_to_ecmwf = _reverse_map(ecmwf_map)
-        cell_to_clob = _reverse_map(clob_map)
-        observations: list[DatasetObservation] = []
-        stations = catalog_stations()
-        for cell in expected:
-            family = family_index.get(cell.event_family_id) or {}
-            reasons: list[str] = []
-            future_leakage = False
-            ecmwf_id = cell_to_ecmwf.get(_cell_tuple(cell))
-            clob_id = cell_to_clob.get(_cell_tuple(cell))
-            ecmwf_row = None if ecmwf_id is None else ecmwf_by_id.get(ecmwf_id)
-            clob_row = None if clob_id is None else clob_by_id.get(clob_id)
-            matched = stations_for_city(cell.city, stations)
-            station = next((row for row in matched if row.station_id == cell.station), None)
-            timezone_name = family.get("timezone_name") or (
-                station.timezone_name if station else "UTC"
-            )
-            decision = decision_timestamp(cell.date, str(timezone_name), cell.checkpoint)
-            forecast_ok = False
-            run_cycle = cell.ecmwf_run_cycle
-            if ecmwf_row is None:
-                reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
-            else:
-                reasons.extend(_operational_reasons(ecmwf_row.get("classification")))
-                available_raw = ecmwf_row.get("available_at")
-                issued_raw = ecmwf_row.get("issued_at")
-                run_param = str(ecmwf_row.get("run_param") or "")
-                payload = _load_stable_raw(namespace, ecmwf_row.get("stable_raw_provenance_path"))
-                schema_status = ecmwf_row.get("schema_status")
-                if schema_status not in {"ok", None}:
-                    if schema_status in {"empty"}:
-                        reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
-                    elif schema_status in {"malformed", "source_drift"}:
-                        reasons.append(ResultClassification.SCHEMA_ERROR.value)
-                candidates: list[ForecastCandidate] = []
-                if issued_raw and available_raw and run_param:
-                    candidates.append(
-                        ForecastCandidate(
-                            issued_at=datetime.fromisoformat(str(issued_raw)),
-                            available_at=datetime.fromisoformat(str(available_raw)),
-                            run_param=run_param,
-                            model=FORECAST_MODEL,
-                        )
-                    )
-                selected = (
-                    select_forecast_at_or_before(candidates, decision) if candidates else None
-                )
-                if selected is None:
-                    if candidates and all(row.available_at > decision for row in candidates):
-                        future_leakage = True
-                    reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
-                else:
-                    forecast_ok = schema_status in {None, "ok"} and isinstance(payload, dict)
-                    if isinstance(payload, dict):
-                        coverage = evaluate_single_run_event_coverage(payload, event_date=cell.date)
-                        if not coverage.usable:
-                            forecast_ok = False
-                            reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
-                        if station is not None or matched:
-                            parse_single_run_forecast(
-                                payload,
-                                station=station or matched[0],
-                                issued_at=selected.issued_at,
-                                request_url=ECMWF_ENDPOINT,
-                            )
-                    run_cycle = selected.run_param
-            has_price = False
-            if clob_row is None:
-                reasons.append(NO_PRE_DECISION_PRICE)
-            else:
-                reasons.extend(_operational_reasons(clob_row.get("classification")))
-                classification = str(clob_row.get("classification") or "")
-                schema_status = clob_row.get("schema_status")
-                points_raw = clob_row.get("points") or []
-                if (
-                    classification == ResultClassification.VALID_EMPTY.value
-                    or schema_status == "empty"
-                ):
-                    reasons.append(PRICE_HISTORY_EMPTY)
-                elif schema_status in {"malformed", "source_drift"}:
-                    reasons.append(ResultClassification.SCHEMA_ERROR.value)
-                else:
-                    points = [
-                        PricePoint(
-                            observed_at=datetime.fromisoformat(str(item["observed_at"])),
-                            price=None if item.get("price") is None else float(item["price"]),
-                        )
-                        for item in points_raw
-                        if isinstance(item, dict) and item.get("observed_at")
-                    ]
-                    chosen = select_price_at_or_before(points, decision)
-                    if chosen is None:
-                        if points and all(point.observed_at > decision for point in points):
-                            future_leakage = True
-                            reasons.append(NO_PRE_DECISION_PRICE)
-                        elif not points:
-                            reasons.append(PRICE_HISTORY_EMPTY)
-                        else:
-                            reasons.append(NO_PRE_DECISION_PRICE)
-                    else:
-                        has_price = True
-            hash_ok = _hashes_ok(namespace, ledger, [ecmwf_id, clob_id])
-            if not hash_ok:
-                reasons.append("raw_hash_mismatch")
-            unique_reasons = tuple(dict.fromkeys(reason for reason in reasons if reason))
-            topology_valid = True
-            has_settlement = bool(family.get("has_settlement"))
-            usable = (
-                forecast_ok
-                and hash_ok
-                and not future_leakage
-                and topology_valid
-                and NO_VALID_FORECAST_BEFORE_DECISION not in unique_reasons
-            )
-            observations.append(
-                DatasetObservation(
-                    date=cell.date,
-                    city=cell.city,
-                    station=cell.station,
-                    checkpoint=cell.checkpoint,
-                    event_family_id=cell.event_family_id,
-                    month=cell.month,
-                    ecmwf_run_cycle=run_cycle,
-                    observed=True,
-                    usable=usable,
-                    has_settlement=has_settlement,
-                    scored=has_settlement,
-                    has_price_history=has_price,
-                    future_leakage=future_leakage,
-                    retrospective_substitution=False,
-                    raw_hash_ok=hash_ok,
-                    topology_valid=topology_valid,
-                    topology_reviewed_quarantine=False,
-                    missing_reasons=unique_reasons,
-                )
-            )
-        return observations
+        del self
+        return assemble_dataset_observations(
+            expected=expected,
+            families=families,
+            ecmwf_parsed=ecmwf_parsed,
+            ecmwf_map=ecmwf_map,
+            clob_parsed=clob_parsed,
+            clob_map=clob_map,
+            ecmwf_namespace=namespace,
+            clob_namespace=namespace,
+            ecmwf_ledger=ledger,
+            clob_ledger=ledger,
+        )
 
     def _execute(self, executor: BoundedGetExecutor, planned: PlannedGet) -> AttemptOutcome:
-        while True:
-            outcome = executor.execute(planned)
-            if not outcome.skipped:
-                self._new_gets += 1
-            if outcome.skipped:
-                return outcome
-            if is_retryable(outcome.record.result_classification) and not attempts_exhausted(
-                outcome.record.attempt_number
-            ):
-                continue
-            return outcome
+        outcome = execute_until_terminal(executor, planned)
+        if not outcome.skipped:
+            self._new_gets += 1
+        return outcome
 
 
 def _overlay_network_authorization(
@@ -785,6 +610,214 @@ def _overlay_network_authorization(
         storage_preflight_ok=enforcement.storage_preflight_ok,
         detail=enforcement.detail,
     )
+
+
+def execute_until_terminal(executor: BoundedGetExecutor, planned: PlannedGet) -> AttemptOutcome:
+    while True:
+        outcome = executor.execute(planned)
+        if outcome.skipped:
+            return outcome
+        if is_retryable(outcome.record.result_classification) and not attempts_exhausted(
+            outcome.record.attempt_number
+        ):
+            continue
+        return outcome
+
+
+def parse_clob_points(payload: Any) -> dict[str, Any]:
+    schema_status = None
+    points: list[dict[str, Any]] = []
+    if payload is not None:
+        schema = validate_prices_history_payload(payload)
+        schema_status = schema.status
+        if schema.status == "ok":
+            try:
+                for point in parse_price_history_points(payload):
+                    points.append(
+                        {
+                            "observed_at": point.observed_at.isoformat(),
+                            "price": point.price,
+                        }
+                    )
+            except ProviderSchemaError:
+                schema_status = "malformed"
+    return {
+        "points": points,
+        "price_semantics": "DESCRIPTIVE_ONLY",
+        "price_selection_rule": PRICE_SELECTION_RULE,
+        "schema_status": schema_status,
+    }
+
+
+def parse_clob_collection_row(
+    *,
+    planned: PlannedGet,
+    outcome: AttemptOutcome,
+    namespace: Path,
+) -> dict[str, Any]:
+    payload = _payload_from_outcome(namespace, outcome.record)
+    row: dict[str, Any] = {
+        "classification": outcome.record.result_classification.value,
+        "content_sha256": outcome.record.content_sha256,
+        "identity": planned.identity,
+        "kind": "clob",
+        "params": dict(planned.params),
+        "skipped": outcome.skipped,
+        "stable_raw_provenance_path": outcome.record.stable_raw_provenance_path,
+    }
+    row.update(parse_clob_points(payload))
+    assert_text_has_no_machine_roots(json.dumps(row, sort_keys=True, default=str))
+    return row
+
+
+def assemble_dataset_observations(
+    *,
+    expected: tuple[ExpectedCell, ...],
+    families: list[dict[str, Any]],
+    ecmwf_parsed: list[dict[str, Any]],
+    ecmwf_map: dict[str, list[dict[str, Any]]],
+    clob_parsed: list[dict[str, Any]],
+    clob_map: dict[str, list[dict[str, Any]]],
+    ecmwf_namespace: Path,
+    clob_namespace: Path,
+    ecmwf_ledger: AppendOnlyLedger,
+    clob_ledger: AppendOnlyLedger,
+) -> list[DatasetObservation]:
+    family_index = {row["event_family_id"]: row for row in families}
+    ecmwf_by_id = {row["identity"]: row for row in ecmwf_parsed}
+    clob_by_id = {row["identity"]: row for row in clob_parsed}
+    cell_to_ecmwf = _reverse_map(ecmwf_map)
+    cell_to_clob = _reverse_map(clob_map)
+    observations: list[DatasetObservation] = []
+    stations = catalog_stations()
+    for cell in expected:
+        family = family_index.get(cell.event_family_id) or {}
+        reasons: list[str] = []
+        future_leakage = False
+        ecmwf_id = cell_to_ecmwf.get(_cell_tuple(cell))
+        clob_id = cell_to_clob.get(_cell_tuple(cell))
+        ecmwf_row = None if ecmwf_id is None else ecmwf_by_id.get(ecmwf_id)
+        clob_row = None if clob_id is None else clob_by_id.get(clob_id)
+        matched = stations_for_city(cell.city, stations)
+        station = next((row for row in matched if row.station_id == cell.station), None)
+        timezone_name = family.get("timezone_name") or (station.timezone_name if station else "UTC")
+        decision = decision_timestamp(cell.date, str(timezone_name), cell.checkpoint)
+        forecast_ok = False
+        run_cycle = cell.ecmwf_run_cycle
+        if ecmwf_row is None:
+            reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
+        else:
+            reasons.extend(_operational_reasons(ecmwf_row.get("classification")))
+            available_raw = ecmwf_row.get("available_at")
+            issued_raw = ecmwf_row.get("issued_at")
+            run_param = str(ecmwf_row.get("run_param") or "")
+            payload = _load_stable_raw(ecmwf_namespace, ecmwf_row.get("stable_raw_provenance_path"))
+            schema_status = ecmwf_row.get("schema_status")
+            if schema_status not in {"ok", None}:
+                if schema_status in {"empty"}:
+                    reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
+                elif schema_status in {"malformed", "source_drift"}:
+                    reasons.append(ResultClassification.SCHEMA_ERROR.value)
+            candidates: list[ForecastCandidate] = []
+            if issued_raw and available_raw and run_param:
+                candidates.append(
+                    ForecastCandidate(
+                        issued_at=datetime.fromisoformat(str(issued_raw)),
+                        available_at=datetime.fromisoformat(str(available_raw)),
+                        run_param=run_param,
+                        model=FORECAST_MODEL,
+                    )
+                )
+            selected = select_forecast_at_or_before(candidates, decision) if candidates else None
+            if selected is None:
+                if candidates and all(row.available_at > decision for row in candidates):
+                    future_leakage = True
+                reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
+            else:
+                forecast_ok = schema_status in {None, "ok"} and isinstance(payload, dict)
+                if isinstance(payload, dict):
+                    coverage = evaluate_single_run_event_coverage(payload, event_date=cell.date)
+                    if not coverage.usable:
+                        forecast_ok = False
+                        reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
+                    if station is not None or matched:
+                        parse_single_run_forecast(
+                            payload,
+                            station=station or matched[0],
+                            issued_at=selected.issued_at,
+                            request_url=ECMWF_ENDPOINT,
+                        )
+                run_cycle = selected.run_param
+        has_price = False
+        if clob_row is None:
+            reasons.append(NO_PRE_DECISION_PRICE)
+        else:
+            reasons.extend(_operational_reasons(clob_row.get("classification")))
+            classification = str(clob_row.get("classification") or "")
+            schema_status = clob_row.get("schema_status")
+            points_raw = clob_row.get("points") or []
+            if classification == ResultClassification.VALID_EMPTY.value or schema_status == "empty":
+                reasons.append(PRICE_HISTORY_EMPTY)
+            elif schema_status in {"malformed", "source_drift"}:
+                reasons.append(ResultClassification.SCHEMA_ERROR.value)
+            else:
+                points = [
+                    PricePoint(
+                        observed_at=datetime.fromisoformat(str(item["observed_at"])),
+                        price=None if item.get("price") is None else float(item["price"]),
+                    )
+                    for item in points_raw
+                    if isinstance(item, dict) and item.get("observed_at")
+                ]
+                chosen = select_price_at_or_before(points, decision)
+                if chosen is None:
+                    if points and all(point.observed_at > decision for point in points):
+                        future_leakage = True
+                        reasons.append(NO_PRE_DECISION_PRICE)
+                    elif not points:
+                        reasons.append(PRICE_HISTORY_EMPTY)
+                    else:
+                        reasons.append(NO_PRE_DECISION_PRICE)
+                else:
+                    has_price = True
+        ecmwf_hash_ok = _hashes_ok(ecmwf_namespace, ecmwf_ledger, [ecmwf_id])
+        clob_hash_ok = _hashes_ok(clob_namespace, clob_ledger, [clob_id])
+        hash_ok = ecmwf_hash_ok and clob_hash_ok
+        if not hash_ok:
+            reasons.append("raw_hash_mismatch")
+        unique_reasons = tuple(dict.fromkeys(reason for reason in reasons if reason))
+        topology_valid = True
+        has_settlement = bool(family.get("has_settlement"))
+        usable = (
+            forecast_ok
+            and hash_ok
+            and not future_leakage
+            and topology_valid
+            and NO_VALID_FORECAST_BEFORE_DECISION not in unique_reasons
+        )
+        observations.append(
+            DatasetObservation(
+                date=cell.date,
+                city=cell.city,
+                station=cell.station,
+                checkpoint=cell.checkpoint,
+                event_family_id=cell.event_family_id,
+                month=cell.month,
+                ecmwf_run_cycle=run_cycle,
+                observed=True,
+                usable=usable,
+                has_settlement=has_settlement,
+                scored=has_settlement,
+                has_price_history=has_price,
+                future_leakage=future_leakage,
+                retrospective_substitution=False,
+                raw_hash_ok=hash_ok,
+                topology_valid=topology_valid,
+                topology_reviewed_quarantine=False,
+                missing_reasons=unique_reasons,
+            )
+        )
+    return observations
 
 
 def _write_progress(

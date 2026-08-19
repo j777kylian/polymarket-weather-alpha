@@ -143,7 +143,9 @@ def _build_or_refuse(
         )
         if isinstance(verified, ProductionDatasetFreezeResult):
             return verified
-        resolved_commit = str(verified.get("CODE_COMMIT") or resolved_commit)
+        resolved_commit = str(
+            verified.get("CODE_COMMIT") or verified.get("RECOVERY_CODE_COMMIT") or resolved_commit
+        )
         date_range = {
             "end": str(verified.get("END_DATE") or END_DATE),
             "start": str(verified.get("START_DATE") or START_DATE),
@@ -225,6 +227,9 @@ def _build_or_refuse(
     payload = freeze.as_dict()
     payload["MONTH_COUNTS"] = _dimension_counts(corpus.expected, "month")
     payload["STATION_COUNTS"] = _dimension_counts(corpus.expected, "station")
+    lineage = _load_recovery_lineage(namespace)
+    if lineage is not None:
+        payload["RECOVERY_LINEAGE"] = lineage
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True)
     assert_text_has_no_machine_roots(encoded)
     freeze = DatasetFreeze(payload=payload)
@@ -393,3 +398,28 @@ def _load_object_list(path: Path) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         return []
     return [row for row in payload if isinstance(row, dict)]
+
+
+def _load_recovery_lineage(namespace: Path) -> dict[str, Any] | None:
+    path = namespace / "recovery_lineage.json"
+    if not path.is_file():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return None
+    parent_id = str(payload.get("PARENT_COLLECTION_ID") or "")
+    recovery_id = str(payload.get("RECOVERY_ID") or "")
+    if not parent_id or not recovery_id:
+        return None
+    lineage = {
+        "PARENT_CODE_COMMIT": str(payload.get("PARENT_CODE_COMMIT") or ""),
+        "PARENT_COLLECTION_ID": parent_id,
+        "PARENT_MANIFEST_SHA256": str(payload.get("PARENT_MANIFEST_SHA256") or ""),
+        "RECOVERY_CODE_COMMIT": str(payload.get("RECOVERY_CODE_COMMIT") or ""),
+        "RECOVERY_ID": recovery_id,
+        "RECOVERY_MANIFEST_SHA256": str(payload.get("RECOVERY_MANIFEST_SHA256") or ""),
+        "RECOVERY_SCOPE": str(payload.get("RECOVERY_SCOPE") or ""),
+    }
+    encoded = json.dumps(lineage, sort_keys=True, ensure_ascii=True)
+    assert_text_has_no_machine_roots(encoded)
+    return lineage

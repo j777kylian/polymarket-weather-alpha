@@ -69,6 +69,13 @@ uv run weather-alpha phase3-run \
 
 # Phase 3.5 offline readiness (fixtures only; no full collection / no forward daemon).
 uv run weather-alpha phase35-readiness --output-root /tmp/weather-alpha-phase35-readiness
+
+# CLOB-only recovery overlay (offline plan/authorize; execute is gated by a
+# persisted recovery receipt). Do not point these at production paths from tests.
+uv run weather-alpha phase35-plan-clob-recovery --help
+uv run weather-alpha phase35-authorize-clob-recovery --help
+uv run weather-alpha phase35-execute-clob-recovery --help
+uv run weather-alpha phase35-audit-recovered --help
 ```
 
 `--dry-run` prints intended scope and performs **no HTTP and no writes**. Phase 3 date spans are capped (62 days). No API keys are required or accepted for trading.

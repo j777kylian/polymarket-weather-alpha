@@ -84,6 +84,18 @@ CANDIDATE_SELECTION_RULE: Final = (
 )
 PRICE_SELECTION_RULE: Final = "price.observed_at <= decision_ts; descriptive_only"
 
+CLOB_FIDELITY_MINUTES: Final = 60
+CLOB_WINDOW_EXTRA_LOOKBACK_SECONDS: Final = 48 * 3600
+CLOB_WINDOW_RULE_VERSION: Final = "phase35-clob-window-rule-v1"
+RECOVERY_SCHEMA_VERSION: Final = "phase35-clob-recovery-manifest-v1"
+RECOVERY_AUTHORIZATION_SCHEMA_VERSION: Final = "phase35-clob-recovery-authorization-v1"
+RECOVERY_SCOPE_CLOB_ONLY: Final = "CLOB_ONLY"
+RECOVERY_RAW_STORAGE_NAMESPACE: Final = "data/phase35/historical/recoveries/"
+PARENT_CLOB_HTTP_FAILURE_SCALE: Final = 435
+# Persisting HTTP_FAILURE bodies would change ledger provenance (today null
+# hashes/paths), resume hash verification, and the preserved parent 435 records.
+HTTP_FAILURE_BODY_PERSISTENCE_DEFERRED: Final = True
+
 OVERALL_COVERAGE_MIN: Final = 0.95
 CITY_COVERAGE_MIN: Final = 0.90
 LEAD_COVERAGE_MIN: Final = 0.90
