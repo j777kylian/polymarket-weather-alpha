@@ -92,6 +92,17 @@ RECOVERY_AUTHORIZATION_SCHEMA_VERSION: Final = "phase35-clob-recovery-authorizat
 RECOVERY_SCOPE_CLOB_ONLY: Final = "CLOB_ONLY"
 RECOVERY_RAW_STORAGE_NAMESPACE: Final = "data/phase35/historical/recoveries/"
 PARENT_CLOB_HTTP_FAILURE_SCALE: Final = 435
+# V2 correction recovery is a separate five-identity path; not the legacy 435 planner.
+CORRECTION_SCHEMA_VERSION: Final = "phase35-clob-correction-manifest-v1"
+CORRECTION_AUTHORIZATION_SCHEMA_VERSION: Final = "phase35-clob-correction-authorization-v1"
+CORRECTION_SCOPE_CLOB_V2: Final = "CLOB_CORRECTION_V2"
+CORRECTION_RAW_STORAGE_NAMESPACE: Final = "data/phase35/historical/corrections/"
+FIRST_RECOVERY_COLLECTION_ID: Final = "phase35-clob-recovery-1ea1f85f6672"
+V2_CORRECTION_TARGET_COUNT: Final = 5
+V2_CORRECTION_PROVENANCE_COUNT: Final = 5
+CORRECTION_REASON_MISSING_CANONICAL_FAMILY_OWNED_HISTORY: Final = (
+    "MISSING_CANONICAL_FAMILY_OWNED_CLOB_HISTORY"
+)
 # Persisting HTTP_FAILURE bodies would change ledger provenance (today null
 # hashes/paths), resume hash verification, and the preserved parent 435 records.
 HTTP_FAILURE_BODY_PERSISTENCE_DEFERRED: Final = True
