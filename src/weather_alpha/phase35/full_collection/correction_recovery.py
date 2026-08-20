@@ -18,14 +18,35 @@ from typing import Any
 
 from weather_alpha.http.readonly import ReadOnlyHttpClient
 from weather_alpha.models.timeutil import utc_now
+from weather_alpha.phase35.full_collection.budget import (
+    BudgetEnforcement,
+    BudgetEstimate,
+    DiskProbe,
+    StaticDiskProbe,
+)
 from weather_alpha.phase35.full_collection.clob_contract import clob_range_params
-from weather_alpha.phase35.full_collection.executor import PlannedGet
+from weather_alpha.phase35.full_collection.executor import (
+    BoundedGetExecutor,
+    CollectionCapExceeded,
+    CollectionPreflightBlocked,
+    PlannedGet,
+)
+from weather_alpha.phase35.full_collection.ledger import (
+    AppendOnlyLedger,
+    RawProvenanceHashFailure,
+    ResultClassification,
+)
 from weather_alpha.phase35.full_collection.manifest import (
     canonical_json,
     payload_sha256,
     resolve_code_commit,
 )
-from weather_alpha.phase35.full_collection.orchestrator import plan_to_dict
+from weather_alpha.phase35.full_collection.orchestrator import (
+    CollectionStage,
+    execute_until_terminal,
+    parse_clob_collection_row,
+    plan_to_dict,
+)
 from weather_alpha.phase35.full_collection.policy import (
     CLOB_ATTEMPT_CAP,
     CLOB_ENDPOINT,
@@ -42,20 +63,27 @@ from weather_alpha.phase35.full_collection.policy import (
     MAX_ATTEMPTS_PER_IDENTITY,
     MAX_RETRIES,
     PARSER_SCHEMA_VERSION,
+    PREFLIGHT_OK,
     PRICE_PROVIDER,
+    REQUEST_BUDGET_REDESIGN_REQUIRED,
     REQUEST_POLICY_VERSION,
     RETRY_AFTER_CAP_SECONDS,
     RETRY_MODE,
     RETRY_ONLY,
     RETRYABLE_HTTP_STATUSES,
+    STORAGE_HARD_CAP_BYTES,
+    STORAGE_PREFLIGHT_MIN_BYTES,
     TIMEOUT_SECONDS,
     V2_CORRECTION_PROVENANCE_COUNT,
     V2_CORRECTION_TARGET_COUNT,
+    YES_PENDING_FINAL_REVIEW,
 )
 from weather_alpha.phase35.full_collection.provenance import (
     assert_text_has_no_machine_roots,
     atomic_write_json,
+    probe_raw,
 )
+from weather_alpha.phase35.full_collection.recovery import estimate_clob_recovery_budget
 from weather_alpha.phase35.full_collection.v2_protocol import (
     CorrectionIdentityProvenance,
     CorrectionPlan,
@@ -174,6 +202,38 @@ class AuthorizedCorrectionManifest:
     correction_identities: tuple[str, ...]
     planned_gets: tuple[PlannedGet, ...]
     v2_correction_audit_source: str
+    correction_namespace: str
+
+
+@dataclass(frozen=True, slots=True)
+class CorrectionRunResult:
+    correction_id: str
+    correction_namespace: str
+    stage: CollectionStage
+    collection_status: str
+    planned_gets: int
+    recovered_gets: int
+    failed_gets: int
+    new_gets: int
+    terminal: bool
+    interrupt_reason: str | None
+    ledger: AppendOnlyLedger
+
+    def as_dict(self) -> dict[str, Any]:
+        payload = {
+            "collection_status": self.collection_status,
+            "correction_id": self.correction_id,
+            "correction_namespace": self.correction_namespace,
+            "failed_gets": self.failed_gets,
+            "interrupt_reason": self.interrupt_reason,
+            "new_gets": self.new_gets,
+            "planned_gets": self.planned_gets,
+            "recovered_gets": self.recovered_gets,
+            "stage": self.stage.value,
+            "terminal": self.terminal,
+        }
+        assert_text_has_no_machine_roots(json.dumps(payload, sort_keys=True))
+        return payload
 
 
 def derive_v2_correction_targets(first_recovery_namespace: Path) -> CorrectionRecoveryDerivation:
@@ -481,6 +541,7 @@ def load_authorized_correction_manifest(
         correction_identities=planned_ids,
         planned_gets=planned,
         v2_correction_audit_source=str(payload["V2_CORRECTION_AUDIT_SOURCE"]),
+        correction_namespace=receipt.correction_namespace,
     )
 
 
@@ -609,6 +670,11 @@ class CorrectionRecoveryService:
         first_recovery_namespace: Path,
         http: ReadOnlyHttpClient,
         expected_code_commit: str,
+        enforcement: BudgetEnforcement | None = None,
+        disk: DiskProbe | None = None,
+        sleeper: Any = None,
+        clock: Any = None,
+        global_attempt_cap: int | None = None,
     ) -> None:
         self.manifest_path = manifest_path
         self.authorization_path = authorization_path
@@ -616,18 +682,184 @@ class CorrectionRecoveryService:
         self._first_recovery_namespace = first_recovery_namespace
         self._http = http
         self._expected_code_commit = expected_code_commit
+        self._enforcement_override = enforcement
+        self._disk = disk or StaticDiskProbe(
+            free_bytes_value=STORAGE_PREFLIGHT_MIN_BYTES, used_bytes_value=0
+        )
+        self._sleeper = sleeper or (lambda _seconds: None)
+        self._clock = clock or utc_now
+        self._global_attempt_cap = global_attempt_cap
+        self._new_gets = 0
 
-    def run(self) -> AuthorizedCorrectionManifest:
-        # Fail closed: networking is gated solely by persisted receipt binding.
-        load_authorized_correction_manifest(
+    def run(self) -> CorrectionRunResult:
+        authorized = load_authorized_correction_manifest(
             self.manifest_path,
             authorization_path=self.authorization_path,
             expected_code_commit=self._expected_code_commit,
         )
-        raise CorrectionAuthorizationError(
-            "execution_not_authorized_in_this_pass",
-            "correction recovery network execution requires separate explicit authorization",
+        _assert_exact_five_clob_scope(authorized)
+        canonical_namespace = _deterministic_correction_namespace(authorized.correction_id)
+        if authorized.correction_namespace != canonical_namespace:
+            raise CorrectionAuthorizationError(
+                "namespace_mismatch",
+                "authorized correction namespace does not match the manifest-derived canonical path",
+            )
+        namespace = self._correction_root / authorized.correction_id
+        if namespace.name != authorized.correction_id:
+            raise CorrectionAuthorizationError(
+                "namespace_mismatch",
+                "runtime correction namespace id does not match the authorized correction id",
+            )
+        if namespace.resolve() == self._first_recovery_namespace.resolve():
+            raise CorrectionAuthorizationError(
+                "namespace_mismatch",
+                "correction namespace must be distinct from the first-recovery corpus",
+            )
+        _assert_correction_namespace_clean(namespace)
+        namespace.mkdir(parents=True, exist_ok=True)
+        ledger = AppendOnlyLedger(namespace / "ledger.jsonl")
+        estimate = estimate_clob_recovery_budget(len(authorized.planned_gets))
+        base = self._enforcement_override or _correction_enforcement(
+            estimate, network_authorized=False, disk=self._disk, storage_root=namespace
         )
+        enforcement = BudgetEnforcement(
+            allowed=base.allowed,
+            status=base.status,
+            network_authorized=authorized.network_authorized,
+            full_collection_start_allowed=base.full_collection_start_allowed,
+            theoretical_envelope_authorized=base.theoretical_envelope_authorized,
+            violated_caps=base.violated_caps,
+            estimate=base.estimate,
+            storage_preflight_ok=base.storage_preflight_ok,
+            detail=base.detail,
+        )
+        if not enforcement.allowed:
+            raise CollectionPreflightBlocked(enforcement.status)
+        if not enforcement.network_authorized:
+            raise CollectionPreflightBlocked(
+                enforcement.full_collection_start_allowed or enforcement.status
+            )
+        executor = BoundedGetExecutor(
+            collection_id=authorized.correction_id,
+            http=self._http,
+            ledger=ledger,
+            raw_root=namespace,
+            enforcement=enforcement,
+            disk=self._disk,
+            global_attempt_cap=(
+                self._global_attempt_cap
+                if self._global_attempt_cap is not None
+                else enforcement.estimate.global_max_attempts
+            ),
+            storage_hard_cap_bytes=STORAGE_HARD_CAP_BYTES,
+            sleeper=self._sleeper,
+            clock=self._clock,
+        )
+        planned_count = len(authorized.planned_gets)
+        try:
+            _verify_existing_hashes(namespace, ledger)
+            _write_correction_progress(
+                namespace,
+                authorized,
+                CollectionStage.CLOB_COLLECTION,
+                clock=self._clock(),
+            )
+            parsed: list[dict[str, Any]] = []
+            recovered = 0
+            failed = 0
+            for planned in authorized.planned_gets:
+                outcome = execute_until_terminal(executor, planned)
+                if not outcome.skipped:
+                    self._new_gets += 1
+                row = parse_clob_collection_row(
+                    planned=planned, outcome=outcome, namespace=namespace
+                )
+                parsed.append(row)
+                classification = outcome.record.result_classification
+                if classification in {
+                    ResultClassification.SUCCESS,
+                    ResultClassification.VALID_EMPTY,
+                }:
+                    recovered += 1
+                elif classification not in {
+                    ResultClassification.SKIPPED_ALREADY_COMPLETE,
+                    ResultClassification.PENDING,
+                }:
+                    failed += 1
+            _persist_json(namespace / "parsed" / "clob.json", parsed)
+            _persist_json(
+                namespace / "plans" / "clob.json",
+                [plan_to_dict(row) for row in authorized.planned_gets],
+            )
+            _persist_json(
+                namespace / "plans" / "clob_cell_map.json",
+                authorized.payload.get("CELL_MAP") or {},
+            )
+            _write_correction_progress(
+                namespace,
+                authorized,
+                CollectionStage.COMPLETE,
+                clock=self._clock(),
+                terminal=True,
+            )
+            _write_correction_lineage(namespace, authorized)
+            return CorrectionRunResult(
+                correction_id=authorized.correction_id,
+                correction_namespace=authorized.correction_namespace,
+                stage=CollectionStage.COMPLETE,
+                collection_status=CollectionStage.COMPLETE.value,
+                planned_gets=planned_count,
+                recovered_gets=recovered,
+                failed_gets=failed,
+                new_gets=self._new_gets,
+                terminal=True,
+                interrupt_reason=None,
+                ledger=ledger,
+            )
+        except CollectionCapExceeded as exc:
+            _write_correction_progress(
+                namespace,
+                authorized,
+                CollectionStage.INTERRUPTED_RESUMABLE,
+                clock=self._clock(),
+                terminal=True,
+                interrupt_reason=exc.cap,
+            )
+            return CorrectionRunResult(
+                correction_id=authorized.correction_id,
+                correction_namespace=authorized.correction_namespace,
+                stage=CollectionStage.INTERRUPTED_RESUMABLE,
+                collection_status=CollectionCapExceeded.COLLECTION_STATUS,
+                planned_gets=planned_count,
+                recovered_gets=0,
+                failed_gets=0,
+                new_gets=self._new_gets,
+                terminal=True,
+                interrupt_reason=exc.cap,
+                ledger=ledger,
+            )
+        except RawProvenanceHashFailure:
+            _write_correction_progress(
+                namespace,
+                authorized,
+                CollectionStage.FAILED_INTEGRITY,
+                clock=self._clock(),
+                terminal=True,
+                interrupt_reason="raw_hash_mismatch",
+            )
+            return CorrectionRunResult(
+                correction_id=authorized.correction_id,
+                correction_namespace=authorized.correction_namespace,
+                stage=CollectionStage.FAILED_INTEGRITY,
+                collection_status=CollectionStage.FAILED_INTEGRITY.value,
+                planned_gets=planned_count,
+                recovered_gets=0,
+                failed_gets=0,
+                new_gets=self._new_gets,
+                terminal=True,
+                interrupt_reason="raw_hash_mismatch",
+                ledger=ledger,
+            )
 
 
 def _enrich_provenance(row: CorrectionIdentityProvenance) -> CorrectionProvenanceRow:
@@ -643,6 +875,182 @@ def _enrich_provenance(row: CorrectionIdentityProvenance) -> CorrectionProvenanc
         ledger_evidence_collection_id=row.ledger_evidence_collection_id,
         reason=CORRECTION_REASON_MISSING_CANONICAL_FAMILY_OWNED_HISTORY,
     )
+
+
+def _assert_exact_five_clob_scope(authorized: AuthorizedCorrectionManifest) -> None:
+    planned_count = len(authorized.planned_gets)
+    clob_count = int(authorized.payload.get("CLOB_CORRECTION_IDENTITIES") or -1)
+    if planned_count != V2_CORRECTION_TARGET_COUNT or clob_count != V2_CORRECTION_TARGET_COUNT:
+        raise CorrectionAuthorizationError(
+            "target_count_mismatch",
+            f"correction execution requires exactly {V2_CORRECTION_TARGET_COUNT} planned CLOB "
+            f"identities; got planned={planned_count} clob_count={clob_count}",
+        )
+    if len(authorized.correction_identities) != V2_CORRECTION_TARGET_COUNT:
+        raise CorrectionAuthorizationError(
+            "target_count_mismatch",
+            "authorized correction identity count is not exactly five",
+        )
+    gamma_raw = authorized.payload.get("GAMMA_CORRECTION_IDENTITIES")
+    ecmwf_raw = authorized.payload.get("ECMWF_CORRECTION_IDENTITIES")
+    if gamma_raw is None or int(gamma_raw) != 0:
+        raise CorrectionAuthorizationError(
+            "scope_mismatch", "GAMMA correction identities must be 0"
+        )
+    if ecmwf_raw is None or int(ecmwf_raw) != 0:
+        raise CorrectionAuthorizationError(
+            "scope_mismatch", "ECMWF correction identities must be 0"
+        )
+    if str(authorized.payload.get("CORRECTION_SCOPE") or "") != CORRECTION_SCOPE_CLOB_V2:
+        raise CorrectionAuthorizationError(
+            "scope_mismatch", "correction scope is not CLOB_CORRECTION_V2"
+        )
+
+
+_CORRECTION_ALLOWED_PREEXISTING_NAMES: frozenset[str] = frozenset(
+    {
+        "correction-manifest.json",
+        "correction-authorization.json",
+    }
+)
+_CORRECTION_FORBIDDEN_EXECUTION_NAMES: frozenset[str] = frozenset(
+    {
+        "ledger.jsonl",
+        "progress.json",
+        "correction_lineage.json",
+        "raw",
+        "parsed",
+        "plans",
+    }
+)
+
+
+def _assert_correction_namespace_clean(namespace: Path) -> None:
+    if not namespace.exists():
+        return
+    if not namespace.is_dir():
+        raise CorrectionAuthorizationError(
+            "preexisting_execution",
+            "correction namespace path exists and is not a directory",
+        )
+    for child in namespace.iterdir():
+        name = child.name
+        if name in _CORRECTION_ALLOWED_PREEXISTING_NAMES and child.is_file():
+            continue
+        if name in _CORRECTION_FORBIDDEN_EXECUTION_NAMES or name not in (
+            _CORRECTION_ALLOWED_PREEXISTING_NAMES
+        ):
+            raise CorrectionAuthorizationError(
+                "preexisting_execution",
+                "correction namespace already contains execution artifacts; "
+                "only the authorized manifest and receipt may pre-exist",
+            )
+
+
+def _correction_enforcement(
+    estimate: BudgetEstimate,
+    *,
+    network_authorized: bool,
+    disk: DiskProbe | None = None,
+    storage_root: Path | None = None,
+) -> BudgetEnforcement:
+    storage_ok = True
+    violated: list[str] = []
+    detail: list[str] = []
+    if estimate.clob_max_attempts > CLOB_ATTEMPT_CAP:
+        violated.append("clob")
+        detail.append("CLOB correction max attempts exceed frozen cap")
+    if disk is not None:
+        root = storage_root or Path(CORRECTION_RAW_STORAGE_NAMESPACE.rstrip("/"))
+        free = disk.free_bytes(root)
+        used = disk.used_bytes(root)
+        if free < STORAGE_PREFLIGHT_MIN_BYTES:
+            storage_ok = False
+            violated.append("storage_preflight")
+            detail.append(
+                f"free bytes {free} below preflight minimum {STORAGE_PREFLIGHT_MIN_BYTES}"
+            )
+        if used >= STORAGE_HARD_CAP_BYTES:
+            storage_ok = False
+            violated.append("storage_hard_cap")
+            detail.append(f"used bytes {used} at or above hard cap {STORAGE_HARD_CAP_BYTES}")
+    allowed = not violated
+    return BudgetEnforcement(
+        allowed=allowed,
+        status=PREFLIGHT_OK if allowed else REQUEST_BUDGET_REDESIGN_REQUIRED,
+        network_authorized=network_authorized,
+        full_collection_start_allowed=YES_PENDING_FINAL_REVIEW if allowed else "NO",
+        theoretical_envelope_authorized=estimate.theoretical_envelope_authorized,
+        violated_caps=tuple(violated),
+        estimate=estimate,
+        storage_preflight_ok=storage_ok,
+        detail=tuple(detail),
+    )
+
+
+def _verify_existing_hashes(namespace: Path, ledger: AppendOnlyLedger) -> None:
+    for record in ledger.records():
+        if not record.content_sha256 or not record.stable_raw_provenance_path:
+            continue
+        probe = probe_raw(
+            namespace / Path(record.stable_raw_provenance_path),
+            record.content_sha256,
+        )
+        if probe.exists and not probe.hash_matches:
+            raise RawProvenanceHashFailure(
+                f"raw hash mismatch for {record.canonical_request_identity}"
+            )
+
+
+def _write_correction_progress(
+    namespace: Path,
+    authorized: AuthorizedCorrectionManifest,
+    stage: CollectionStage,
+    *,
+    clock: datetime,
+    terminal: bool = False,
+    interrupt_reason: str | None = None,
+) -> None:
+    payload = {
+        "collection_id": authorized.correction_id,
+        "correction_code_commit": authorized.code_commit,
+        "correction_id": authorized.correction_id,
+        "correction_namespace": authorized.correction_namespace,
+        "first_recovery_collection_id": str(
+            authorized.payload.get("FIRST_RECOVERY_COLLECTION_ID")
+            or authorized.v2_correction_audit_source
+        ),
+        "interrupt_reason": interrupt_reason,
+        "manifest_sha256": authorized.manifest_sha256,
+        "stage": stage.value,
+        "terminal": terminal
+        or stage
+        in {
+            CollectionStage.COMPLETE,
+            CollectionStage.INTERRUPTED_RESUMABLE,
+            CollectionStage.FAILED_INTEGRITY,
+        },
+        "updated_at": clock.isoformat(),
+        "v2_correction_audit_source": authorized.v2_correction_audit_source,
+    }
+    _persist_json(namespace / "progress.json", payload)
+
+
+def _write_correction_lineage(namespace: Path, authorized: AuthorizedCorrectionManifest) -> None:
+    lineage = {
+        "CORRECTION_CODE_COMMIT": authorized.code_commit,
+        "CORRECTION_ID": authorized.correction_id,
+        "CORRECTION_MANIFEST_SHA256": authorized.manifest_sha256,
+        "CORRECTION_NAMESPACE": authorized.correction_namespace,
+        "CORRECTION_SCOPE": CORRECTION_SCOPE_CLOB_V2,
+        "FIRST_RECOVERY_COLLECTION_ID": str(
+            authorized.payload.get("FIRST_RECOVERY_COLLECTION_ID")
+            or authorized.v2_correction_audit_source
+        ),
+        "REQUEST_POLICY_VERSION": authorized.request_policy_version,
+        "V2_CORRECTION_AUDIT_SOURCE": authorized.v2_correction_audit_source,
+    }
+    _persist_json(namespace / "correction_lineage.json", lineage)
 
 
 def _first_recovery_collection_id(namespace: Path) -> str:

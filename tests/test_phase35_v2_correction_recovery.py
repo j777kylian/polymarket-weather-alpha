@@ -15,6 +15,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fakes import RecordingGetTransport
+from weather_alpha.http.readonly import ReadOnlyHttpClient, ReadOnlyTransport
 from weather_alpha.phase35.full_collection.clob_contract import canonical_clob_identity
 from weather_alpha.phase35.full_collection.correction_recovery import (
     CorrectionAuthorizationError,
@@ -25,6 +27,7 @@ from weather_alpha.phase35.full_collection.correction_recovery import (
     derive_v2_correction_targets,
     load_authorized_correction_manifest,
 )
+from weather_alpha.phase35.full_collection.orchestrator import CollectionStage
 from weather_alpha.phase35.full_collection.policy import (
     CORRECTION_RAW_STORAGE_NAMESPACE,
     CORRECTION_REASON_MISSING_CANONICAL_FAMILY_OWNED_HISTORY,
@@ -35,7 +38,29 @@ from weather_alpha.phase35.full_collection.policy import (
 from weather_alpha.phase35.full_collection.v2_protocol import offline_v2_corpus_audit
 
 REAL_FIRST_RECOVERY = Path("data/phase35/historical/recoveries") / FIRST_RECOVERY_COLLECTION_ID
+REAL_CORRECTION = Path("data/phase35/historical/corrections/phase35-clob-correction-8d49dedc30d6")
 CORRECTION_COMMIT = "correction-test-commit-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+
+def _clock() -> datetime:
+    return datetime(2026, 8, 20, 16, 0, tzinfo=UTC)
+
+
+def _http(transport: ReadOnlyTransport) -> ReadOnlyHttpClient:
+    return ReadOnlyHttpClient(
+        transport=transport,
+        max_retries=0,
+        retry_statuses=frozenset(),
+        sleeper=lambda _seconds: None,
+    )
+
+
+def _clob_history_payload() -> dict[str, object]:
+    return {
+        "history": [
+            {"t": int(datetime(2026, 5, 18, 12, tzinfo=UTC).timestamp()), "p": 0.41},
+        ]
+    }
 
 
 def _fingerprint(root: Path) -> dict[str, str]:
@@ -581,3 +606,134 @@ def test_real_five_identity_manifest_shape_offline(tmp_path: Path) -> None:
     )
     after = _fingerprint(REAL_FIRST_RECOVERY)
     assert after == before
+
+
+def _authorize_five_identity_correction(tmp_path: Path) -> tuple[Path, Path, str, tuple[str, ...]]:
+    manifest_path = tmp_path / "correction-manifest.json"
+    created = create_correction_recovery_manifest(
+        destination=manifest_path,
+        first_recovery_namespace=REAL_FIRST_RECOVERY,
+        code_commit=CORRECTION_COMMIT,
+        created_at=datetime(2026, 8, 20, 15, 0, tzinfo=UTC),
+    )
+    assert created.correction_id is not None
+    receipt_path = tmp_path / "correction-authorization.json"
+    create_correction_authorization_receipt(
+        manifest_path=manifest_path,
+        destination=receipt_path,
+        expected_code_commit=CORRECTION_COMMIT,
+        authorized_at=_clock(),
+    )
+    return manifest_path, receipt_path, created.correction_id, created.identities
+
+
+def test_authorized_five_identity_execution_isolates_planned_gets_and_parent(
+    tmp_path: Path,
+) -> None:
+    """Fake transport only: exactly five manifest GETs; first recovery + real artifacts untouched."""
+
+    assert REAL_FIRST_RECOVERY.is_dir()
+    assert REAL_CORRECTION.is_dir()
+    before_first = _fingerprint(REAL_FIRST_RECOVERY)
+    before_correction = _fingerprint(REAL_CORRECTION)
+
+    manifest_path, receipt_path, correction_id, identities = _authorize_five_identity_correction(
+        tmp_path
+    )
+    assert len(identities) == V2_CORRECTION_TARGET_COUNT
+
+    transport = RecordingGetTransport({"/prices-history": _clob_history_payload()})
+    service = CorrectionRecoveryService(
+        manifest_path=manifest_path,
+        authorization_path=receipt_path,
+        correction_root=tmp_path / "corrections",
+        first_recovery_namespace=REAL_FIRST_RECOVERY,
+        http=_http(transport),
+        expected_code_commit=CORRECTION_COMMIT,
+    )
+    result = service.run()
+
+    assert result.correction_id == correction_id
+    assert result.planned_gets == V2_CORRECTION_TARGET_COUNT
+    assert result.recovered_gets == V2_CORRECTION_TARGET_COUNT
+    assert result.failed_gets == 0
+    assert result.new_gets == V2_CORRECTION_TARGET_COUNT
+    assert result.stage is CollectionStage.COMPLETE
+    assert result.terminal is True
+
+    clob_calls = [call for call in transport.calls if "/prices-history" in call[1]]
+    assert len(clob_calls) == V2_CORRECTION_TARGET_COUNT
+    assert all(method == "GET" for method, _url in transport.calls)
+    assert not any("public-search" in url for _method, url in transport.calls)
+    assert not any("open-meteo" in url for _method, url in transport.calls)
+
+    namespace = tmp_path / "corrections" / correction_id
+    assert namespace.is_dir()
+    parsed = json.loads((namespace / "parsed" / "clob.json").read_text(encoding="utf-8"))
+    assert {row["identity"] for row in parsed} == set(identities)
+    assert (namespace / "plans" / "clob_cell_map.json").is_file()
+    assert (namespace / "ledger.jsonl").is_file()
+    progress = json.loads((namespace / "progress.json").read_text(encoding="utf-8"))
+    assert progress["terminal"] is True
+    assert progress["stage"] == CollectionStage.COMPLETE.value
+    lineage = json.loads((namespace / "correction_lineage.json").read_text(encoding="utf-8"))
+    assert lineage["CORRECTION_ID"] == correction_id
+    assert lineage["V2_CORRECTION_AUDIT_SOURCE"] == FIRST_RECOVERY_COLLECTION_ID
+    assert lineage["CORRECTION_NAMESPACE"] == f"{CORRECTION_RAW_STORAGE_NAMESPACE}{correction_id}"
+
+    assert _fingerprint(REAL_FIRST_RECOVERY) == before_first
+    assert _fingerprint(REAL_CORRECTION) == before_correction
+    assert REAL_CORRECTION.resolve() != namespace.resolve()
+
+
+def test_execution_refuses_non_five_correction_manifest(tmp_path: Path) -> None:
+    namespace = _write_synthetic_first_recovery(tmp_path)
+    manifest_path = tmp_path / "correction-manifest.json"
+    created = create_correction_recovery_manifest(
+        destination=manifest_path,
+        first_recovery_namespace=namespace,
+        code_commit=CORRECTION_COMMIT,
+        created_at=datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
+    )
+    assert created.payload["CLOB_CORRECTION_IDENTITIES"] == 1
+    receipt_path = tmp_path / "correction-authorization.json"
+    create_correction_authorization_receipt(
+        manifest_path=manifest_path,
+        destination=receipt_path,
+        expected_code_commit=CORRECTION_COMMIT,
+    )
+    transport = RecordingGetTransport({"/prices-history": _clob_history_payload()})
+    service = CorrectionRecoveryService(
+        manifest_path=manifest_path,
+        authorization_path=receipt_path,
+        correction_root=tmp_path / "corrections",
+        first_recovery_namespace=namespace,
+        http=_http(transport),
+        expected_code_commit=CORRECTION_COMMIT,
+    )
+    with pytest.raises(CorrectionAuthorizationError, match="target_count_mismatch") as caught:
+        service.run()
+    assert caught.value.code == "target_count_mismatch"
+    assert transport.calls == []
+
+
+def test_execution_refuses_preexisting_correction_execution_artifacts(tmp_path: Path) -> None:
+    manifest_path, receipt_path, correction_id, _identities = _authorize_five_identity_correction(
+        tmp_path
+    )
+    namespace = tmp_path / "corrections" / correction_id
+    namespace.mkdir(parents=True)
+    (namespace / "ledger.jsonl").write_text("{}\n", encoding="utf-8")
+    transport = RecordingGetTransport({"/prices-history": _clob_history_payload()})
+    service = CorrectionRecoveryService(
+        manifest_path=manifest_path,
+        authorization_path=receipt_path,
+        correction_root=tmp_path / "corrections",
+        first_recovery_namespace=REAL_FIRST_RECOVERY,
+        http=_http(transport),
+        expected_code_commit=CORRECTION_COMMIT,
+    )
+    with pytest.raises(CorrectionAuthorizationError, match="preexisting_execution") as caught:
+        service.run()
+    assert caught.value.code == "preexisting_execution"
+    assert transport.calls == []
