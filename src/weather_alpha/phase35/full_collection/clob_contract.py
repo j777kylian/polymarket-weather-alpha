@@ -96,19 +96,35 @@ def plan_clob_gets(
     stations: tuple[Station, ...] | None = None,
 ) -> tuple[list[PlannedGet], dict[str, list[dict[str, Any]]]]:
     family_index = {row["event_family_id"]: row for row in families}
+    # Shared-token ownership is fail-closed: if a token appears in multiple
+    # families' yes_token_ids, the planner must not map it positionally.
+    token_owners: dict[str, set[str]] = {}
+    for family in families:
+        family_id = str(family.get("event_family_id") or "")
+        for token in family.get("yes_token_ids") or ():
+            tok = str(token)
+            token_owners.setdefault(tok, set()).add(family_id)
+    canonical_token_by_family_id: dict[str, str | None] = {}
+    for family_id, family in family_index.items():
+        tokens = [str(token) for token in (family.get("yes_token_ids") or [])]
+        owned = [tok for tok in tokens if len(token_owners.get(tok) or set()) == 1]
+        # Deterministic selection without positional assumption.
+        canonical_token_by_family_id[str(family_id)] = min(owned, key=str) if owned else None
+
     catalog = stations if stations is not None else catalog_stations()
     plans: dict[str, PlannedGet] = {}
     mapping: dict[str, list[dict[str, Any]]] = {}
     for cell in expected:
-        family = family_index.get(cell.event_family_id)
-        if family is None:
+        maybe_family = family_index.get(cell.event_family_id)
+        if maybe_family is None:
             continue
-        tokens = list(family.get("yes_token_ids") or [])
-        if not tokens:
+        family = maybe_family
+        canonical_token = canonical_token_by_family_id.get(str(cell.event_family_id))
+        if not canonical_token:
             continue
         timezone_name = resolve_clob_timezone(family=family, cell=cell, stations=catalog)
         start_ts, end_ts = clob_window_timestamps(cell.date, timezone_name)
-        market = str(tokens[0])
+        market = canonical_token
         params = clob_range_params(market, start_ts, end_ts)
         identity = canonical_clob_identity(
             market=market, start_ts=start_ts, end_ts=end_ts, fidelity=CLOB_FIDELITY_MINUTES

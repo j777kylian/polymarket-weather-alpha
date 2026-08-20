@@ -469,20 +469,45 @@ def phase35_collect_historical(
 )
 def phase35_audit_historical(collection_id: str, collection_root: Path) -> None:
     """Offline corpus assembler + dataset audit for a persisted collection namespace."""
+    from weather_alpha.phase35.full_collection.v2_protocol import offline_v2_corpus_audit
+
+    namespace = collection_root / collection_id
     corpus = FullCollectionCorpusAssembler(
         collection_root=collection_root,
         collection_id=collection_id,
     ).assemble()
     audit = audit_dataset(expected=corpus.expected, observations=corpus.observations)
-    reports_dir = collection_root / collection_id / "reports"
-    machine, human = build_dataset_audit_reports(audit, collection_not_executed=False)
+    # Authoritative V2 offline audit/report (not optional helper metadata).
+    v2_audit = offline_v2_corpus_audit(namespace)
+    reports_dir = namespace / "reports"
+    machine, human = build_dataset_audit_reports(
+        audit, collection_not_executed=False, v2_audit=v2_audit
+    )
     write_report_pair(
         reports_dir / "phase35_historical_audit.md",
         reports_dir / "phase35_historical_audit.json",
         human,
         machine,
     )
-    click.echo(json.dumps(audit.as_dict(), indent=2, sort_keys=True))
+    (reports_dir / "phase35_v2_audit.json").write_text(
+        json.dumps(v2_audit, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    payload = audit.as_dict()
+    payload.update(
+        {
+            "PHASE35B_V2_DATASET_READY": v2_audit.get("PHASE35B_V2_DATASET_READY"),
+            "UNRESOLVED_CORRECTION_CLOB_IDENTITY_COUNT": v2_audit.get(
+                "UNRESOLVED_CORRECTION_CLOB_IDENTITY_COUNT"
+            ),
+            "FIXED_TIME_MARKET_ALPHA_DATA_READY": v2_audit.get(
+                "FIXED_TIME_MARKET_ALPHA_DATA_READY"
+            ),
+            "EARLY_MARKET_ALPHA_DATA_READY": v2_audit.get("EARLY_MARKET_ALPHA_DATA_READY"),
+            "PHASE35B_V2_AUDIT": v2_audit,
+        }
+    )
+    click.echo(json.dumps(payload, indent=2, sort_keys=True))
     if not audit.phase35_dataset_ready:
         raise SystemExit(2)
 

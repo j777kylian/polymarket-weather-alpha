@@ -495,8 +495,14 @@ def point_in_time_flags(
         forecasts=forecasts,
         prices=prices,
     )
-    future_forecast = "forecast_future_only" in selected.rejection_reasons
-    future_price = "price_post_decision_only" in selected.rejection_reasons
+    # V2 actual-future-leakage semantics: only a selected value later than
+    # decision_ts counts. Post-decision-only absence remains in rejection reasons.
+    future_forecast = bool(
+        selected.forecast is not None and selected.forecast.available_at > selected.decision_ts
+    )
+    future_price = bool(
+        selected.price is not None and selected.price.observed_at > selected.decision_ts
+    )
     return future_forecast, future_price, selected.rejection_reasons
 
 
@@ -504,25 +510,45 @@ def build_dataset_audit_reports(
     audit: DatasetAuditResult,
     *,
     collection_not_executed: bool = True,
+    v2_audit: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
+    measured_data: dict[str, Any] = {
+        "PHASE35_DATASET_READY": audit.phase35_dataset_ready,
+        "matrices": audit.as_dict()["matrices"],
+        "systematic_clusters": list(audit.systematic_clusters),
+    }
+    model_output: dict[str, Any] = {
+        "blocked_reasons": list(audit.blocked_reasons),
+        "coverage_policy_accepted": audit.coverage_policy_accepted,
+        "descriptive_price_coverage_acceptable": audit.descriptive_price_coverage_acceptable,
+        "no_unresolved_systematic_failure_cluster": (
+            audit.no_unresolved_systematic_failure_cluster
+        ),
+        "point_in_time_integrity": audit.point_in_time_integrity,
+        "provenance_complete": audit.provenance_complete,
+        "settlement_availability_acceptable": audit.settlement_availability_acceptable,
+        "topology_integrity": audit.topology_integrity,
+    }
+    if v2_audit is not None:
+        measured_data["PHASE35B_V2_AUDIT"] = dict(v2_audit)
+        model_output["PHASE35B_V2_DATASET_READY"] = v2_audit.get(
+            "PHASE35B_V2_DATASET_READY", "NOT_YET_ESTABLISHED"
+        )
+        model_output["POINT_IN_TIME_INTEGRITY_READY"] = v2_audit.get(
+            "POINT_IN_TIME_INTEGRITY_READY"
+        )
+        model_output["FORECAST_CALIBRATION_DATA_READY"] = v2_audit.get(
+            "FORECAST_CALIBRATION_DATA_READY"
+        )
+        model_output["FIXED_TIME_MARKET_ALPHA_DATA_READY"] = v2_audit.get(
+            "FIXED_TIME_MARKET_ALPHA_DATA_READY"
+        )
+        model_output["EARLY_MARKET_ALPHA_DATA_READY"] = v2_audit.get(
+            "EARLY_MARKET_ALPHA_DATA_READY"
+        )
     machine = research_contract(
-        measured_data={
-            "PHASE35_DATASET_READY": audit.phase35_dataset_ready,
-            "matrices": audit.as_dict()["matrices"],
-            "systematic_clusters": list(audit.systematic_clusters),
-        },
-        model_output={
-            "blocked_reasons": list(audit.blocked_reasons),
-            "coverage_policy_accepted": audit.coverage_policy_accepted,
-            "descriptive_price_coverage_acceptable": audit.descriptive_price_coverage_acceptable,
-            "no_unresolved_systematic_failure_cluster": (
-                audit.no_unresolved_systematic_failure_cluster
-            ),
-            "point_in_time_integrity": audit.point_in_time_integrity,
-            "provenance_complete": audit.provenance_complete,
-            "settlement_availability_acceptable": audit.settlement_availability_acceptable,
-            "topology_integrity": audit.topology_integrity,
-        },
+        measured_data=measured_data,
+        model_output=model_output,
         assumptions={
             "city_coverage_min": CITY_COVERAGE_MIN,
             "clob_city_min": CLOB_CITY_MIN,

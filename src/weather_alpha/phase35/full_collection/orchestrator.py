@@ -730,10 +730,11 @@ def assemble_dataset_observations(
                 )
             selected = select_forecast_at_or_before(candidates, decision) if candidates else None
             if selected is None:
-                if candidates and all(row.available_at > decision for row in candidates):
-                    future_leakage = True
+                # V2: absent pre-decision forecast is not actual future leakage.
                 reasons.append(NO_VALID_FORECAST_BEFORE_DECISION)
             else:
+                if selected.available_at > decision:
+                    future_leakage = True
                 forecast_ok = schema_status in {None, "ok"} and isinstance(payload, dict)
                 if isinstance(payload, dict):
                     coverage = evaluate_single_run_event_coverage(payload, event_date=cell.date)
@@ -771,13 +772,14 @@ def assemble_dataset_observations(
                 ]
                 chosen = select_price_at_or_before(points, decision)
                 if chosen is None:
-                    if points and all(point.observed_at > decision for point in points):
-                        future_leakage = True
-                        reasons.append(NO_PRE_DECISION_PRICE)
-                    elif not points:
+                    if not points:
                         reasons.append(PRICE_HISTORY_EMPTY)
                     else:
+                        # V2: post-decision-only history with no selected price is
+                        # NO_PRE_DECISION_PRICE, not actual future leakage.
                         reasons.append(NO_PRE_DECISION_PRICE)
+                elif chosen.observed_at > decision:
+                    future_leakage = True
                 else:
                     has_price = True
         ecmwf_hash_ok = _hashes_ok(ecmwf_namespace, ecmwf_ledger, [ecmwf_id])

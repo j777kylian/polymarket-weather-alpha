@@ -962,9 +962,10 @@ def test_post_decision_forecast_and_price_are_leakage() -> None:
         ),
         prices=(future_price,),
     )
-    assert forecast_leak is True
+    # V2: post-decision-only absence is not actual selected future leakage.
+    assert forecast_leak is False
     assert "forecast_future_only" in reasons_f
-    assert price_leak is True
+    assert price_leak is False
     assert "price_post_decision_only" in reasons_p
 
 
