@@ -523,9 +523,16 @@ def v2_readiness_state(
     track_a_support: bool = False,
 ) -> V2Readiness:
     # Fail closed: unresolved corrections can never yield DATASET_READY=YES.
+    # DATASET_READY is pre-freeze eligibility; FROZEN is an independent post-freeze fact.
+    # Affirmative READY also requires track_a_support (implemented + recovery + audit + unresolved==0).
     if unresolved_correction_count > 0:
         dataset_ready = "NOT_YET_ESTABLISHED"
-    elif v2_implemented and correction_recovery_executed and final_v2_audit_passed and frozen:
+    elif (
+        v2_implemented
+        and correction_recovery_executed
+        and final_v2_audit_passed
+        and track_a_support
+    ):
         dataset_ready = "YES"
     else:
         dataset_ready = "NOT_YET_ESTABLISHED"

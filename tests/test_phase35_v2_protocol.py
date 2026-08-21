@@ -757,3 +757,52 @@ def test_v2_readiness_fail_closed_when_unresolved_corrections_remain() -> None:
     assert state.PHASE35B_V2_DATASET_READY == "NOT_YET_ESTABLISHED"
     assert state.FIXED_TIME_MARKET_ALPHA_DATA_READY == "BLOCKED_PENDING_CORRECTION"
     assert state.EARLY_MARKET_ALPHA_DATA_READY == "BLOCKED_PENDING_CORRECTION"
+
+
+def test_v2_readiness_eligible_before_freeze_without_requiring_frozen() -> None:
+    """DATASET_READY may be YES as freeze-eligible; FROZEN stays independent/NO."""
+
+    state = v2_readiness_state(
+        v2_implemented=True,
+        correction_recovery_executed=True,
+        final_v2_audit_passed=True,
+        frozen=False,
+        unresolved_correction_count=0,
+        track_a_support=True,
+    )
+    assert state.PHASE35B_V2_DATASET_READY == "YES"
+    assert state.PHASE35B_V2_FROZEN == "NO"
+    assert state.FIXED_TIME_MARKET_ALPHA_DATA_READY == "YES"
+    assert state.EARLY_MARKET_ALPHA_DATA_READY == "YES"
+    assert state.FORECAST_CALIBRATION_DATA_READY == "YES"
+
+
+def test_v2_readiness_fail_closed_without_track_a_support() -> None:
+    """Affirmative DATASET_READY requires track_a_support even when other gates pass."""
+
+    state = v2_readiness_state(
+        v2_implemented=True,
+        correction_recovery_executed=True,
+        final_v2_audit_passed=True,
+        frozen=False,
+        unresolved_correction_count=0,
+        track_a_support=False,
+    )
+    assert state.PHASE35B_V2_DATASET_READY == "NOT_YET_ESTABLISHED"
+    assert state.PHASE35B_V2_FROZEN == "NO"
+    assert state.FORECAST_CALIBRATION_DATA_READY == "NO"
+
+
+def test_v2_readiness_stays_not_ready_when_substantive_gates_fail() -> None:
+    """Incomplete recovery/audit must remain NOT_YET_ESTABLISHED; FROZEN still NO."""
+
+    state = v2_readiness_state(
+        v2_implemented=True,
+        correction_recovery_executed=True,
+        final_v2_audit_passed=False,
+        frozen=False,
+        unresolved_correction_count=0,
+        track_a_support=True,
+    )
+    assert state.PHASE35B_V2_DATASET_READY == "NOT_YET_ESTABLISHED"
+    assert state.PHASE35B_V2_FROZEN == "NO"
