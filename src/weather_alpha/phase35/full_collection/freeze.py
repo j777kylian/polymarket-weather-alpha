@@ -2,6 +2,10 @@
 
 Offline: consumes a completed collection namespace, recomputes audit, and binds
 real hashes. Does not contact providers, create manifests, or authorize collection.
+
+V2 freeze adapter (``build_production_v2_dataset_freeze``) binds corrected V2
+audit + correction provenance for a *future* freeze path. It does not contact
+providers and never enables caller readiness overrides.
 """
 
 from __future__ import annotations
@@ -26,18 +30,37 @@ from weather_alpha.phase35.full_collection.audit import (
 from weather_alpha.phase35.full_collection.corpus import FullCollectionCorpusAssembler
 from weather_alpha.phase35.full_collection.ledger import AppendOnlyLedger
 from weather_alpha.phase35.full_collection.manifest import payload_sha256, resolve_code_commit
-from weather_alpha.phase35.full_collection.policy import END_DATE, START_DATE
+from weather_alpha.phase35.full_collection.policy import (
+    CORRECTION_SCOPE_CLOB_V2,
+    END_DATE,
+    START_DATE,
+)
 from weather_alpha.phase35.full_collection.provenance import (
     assert_text_has_no_machine_roots,
     atomic_write_json,
     probe_raw,
 )
+from weather_alpha.phase35.full_collection.v2_protocol import offline_v2_corpus_audit
 
 FREEZE_ARTIFACT_NAME = "phase35_dataset_freeze.json"
 HISTORICAL_AUDIT_JSON = "phase35_historical_audit.json"
 FREEZE_ARTIFACT_RELATIVE = f"reports/{FREEZE_ARTIFACT_NAME}"
 AUDIT_ARTIFACT_RELATIVE = f"reports/{HISTORICAL_AUDIT_JSON}"
+V2_FREEZE_ARTIFACT_NAME = "phase35_v2_dataset_freeze.json"
+V2_AUDIT_JSON = "phase35_v2_audit.json"
+V2_FREEZE_ARTIFACT_RELATIVE = f"reports/{V2_FREEZE_ARTIFACT_NAME}"
+V2_AUDIT_ARTIFACT_RELATIVE = f"reports/{V2_AUDIT_JSON}"
 PLACEHOLDER_HASHES = frozenset({"", "none", "uncollected", "0" * 64})
+CORRECTED_AUDIT_VIEW_NAME = "corrected_audit_view"
+WRONG_EVIDENCE_RELATIVE = "correction_overlay/wrong_evidence_preserved.json"
+
+
+def is_phase35b_v2_production_freeze_namespace(namespace: Path) -> bool:
+    """True when namespace is a Phase35B V2 correction freeze target."""
+
+    return (namespace / "correction-manifest.json").is_file() and (
+        namespace / "correction_lineage.json"
+    ).is_file()
 
 
 class DatasetFreezeStatus(StrEnum):
@@ -423,3 +446,355 @@ def _load_recovery_lineage(namespace: Path) -> dict[str, Any] | None:
     encoded = json.dumps(lineage, sort_keys=True, ensure_ascii=True)
     assert_text_has_no_machine_roots(encoded)
     return lineage
+
+
+@dataclass(frozen=True, slots=True)
+class ProductionV2DatasetFreezeResult:
+    status: DatasetFreezeStatus
+    correction_id: str
+    dataset_freeze_created: bool
+    reason: str | None
+    freeze_sha256: str | None
+    freeze_path: Path | None
+    payload: dict[str, Any] | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        summary = {
+            "CORRECTION_ID": self.correction_id,
+            "DATASET_FREEZE_CREATED": "YES" if self.dataset_freeze_created else "NO",
+            "FREEZE_ARTIFACT": V2_FREEZE_ARTIFACT_RELATIVE if self.dataset_freeze_created else None,
+            "FREEZE_SHA256": self.freeze_sha256,
+            "PROVIDER_REQUESTS": 0,
+            "reason": self.reason,
+            "status": self.status.value,
+        }
+        encoded = json.dumps(summary, sort_keys=True, ensure_ascii=True)
+        assert_text_has_no_machine_roots(encoded)
+        return summary
+
+
+def build_production_v2_dataset_freeze(
+    *,
+    correction_namespace: Path,
+) -> ProductionV2DatasetFreezeResult:
+    """Bind a V2 production freeze from persisted correction + derived audit view.
+
+    Offline only. The corrected audit view path is derived exclusively as
+    ``<correction_namespace>/corrected_audit_view`` — callers cannot supply an
+    alternate view. Writes ``reports/phase35_v2_dataset_freeze.json`` only when
+    every generic integrity gate and V2 freeze-eligibility gate passes. Caller
+    cannot override readiness. Does not contact providers.
+    """
+    correction_id = correction_namespace.name
+    corrected_audit_view = correction_namespace / CORRECTED_AUDIT_VIEW_NAME
+    try:
+        return _build_v2_or_refuse(
+            correction_namespace=correction_namespace,
+            corrected_audit_view=corrected_audit_view,
+            correction_id=correction_id,
+        )
+    except (
+        FileNotFoundError,
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+        OSError,
+        KeyError,
+    ):
+        return _v2_refused(correction_id, "assemble_failed")
+
+
+def _v2_refused(correction_id: str, reason: str) -> ProductionV2DatasetFreezeResult:
+    return ProductionV2DatasetFreezeResult(
+        status=DatasetFreezeStatus.REFUSED,
+        correction_id=correction_id,
+        dataset_freeze_created=False,
+        reason=reason,
+        freeze_sha256=None,
+        freeze_path=None,
+        payload=None,
+    )
+
+
+def _build_v2_or_refuse(
+    *,
+    correction_namespace: Path,
+    corrected_audit_view: Path,
+    correction_id: str,
+) -> ProductionV2DatasetFreezeResult:
+    progress = _load_progress(correction_namespace)
+    if progress is None:
+        return _v2_refused(correction_id, "missing_progress")
+    if str(progress.get("correction_id") or progress.get("collection_id") or "") != correction_id:
+        return _v2_refused(correction_id, "correction_id_mismatch")
+    stage = str(progress.get("stage") or "")
+    if stage != "COMPLETE" or progress.get("terminal") is not True:
+        return _v2_refused(correction_id, "not_complete")
+
+    manifest_path = correction_namespace / "correction-manifest.json"
+    receipt_path = correction_namespace / "correction-authorization.json"
+    lineage_path = correction_namespace / "correction_lineage.json"
+    if not manifest_path.is_file() or not receipt_path.is_file() or not lineage_path.is_file():
+        return _v2_refused(correction_id, "missing_provenance")
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        lineage = json.loads(lineage_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return _v2_refused(correction_id, "missing_provenance")
+    if (
+        not isinstance(manifest, dict)
+        or not isinstance(receipt, dict)
+        or not isinstance(lineage, dict)
+    ):
+        return _v2_refused(correction_id, "missing_provenance")
+
+    manifest_sha256 = payload_sha256(manifest)
+    receipt_sha256 = payload_sha256(receipt)
+    lineage_sha256 = payload_sha256(lineage)
+    progress_manifest_sha = str(progress.get("manifest_sha256") or "")
+    if progress_manifest_sha != manifest_sha256:
+        return _v2_refused(correction_id, "manifest_sha_mismatch")
+    if str(receipt.get("CORRECTION_MANIFEST_SHA256") or "") != manifest_sha256:
+        return _v2_refused(correction_id, "provenance_mismatch")
+    if str(lineage.get("CORRECTION_MANIFEST_SHA256") or "") != manifest_sha256:
+        return _v2_refused(correction_id, "lineage_mismatch")
+
+    expected_id = str(manifest.get("CORRECTION_ID") or "")
+    if expected_id != correction_id:
+        return _v2_refused(correction_id, "correction_id_mismatch")
+    if str(receipt.get("CORRECTION_ID") or "") != correction_id:
+        return _v2_refused(correction_id, "provenance_mismatch")
+    if str(lineage.get("CORRECTION_ID") or "") != correction_id:
+        return _v2_refused(correction_id, "lineage_mismatch")
+
+    code_commit = str(manifest.get("CORRECTION_CODE_COMMIT") or "")
+    if not code_commit or code_commit != str(receipt.get("CORRECTION_CODE_COMMIT") or ""):
+        return _v2_refused(correction_id, "provenance_mismatch")
+    if code_commit != str(lineage.get("CORRECTION_CODE_COMMIT") or ""):
+        return _v2_refused(correction_id, "lineage_mismatch")
+    if code_commit != str(progress.get("correction_code_commit") or ""):
+        return _v2_refused(correction_id, "provenance_mismatch")
+
+    relative_namespace = str(lineage.get("CORRECTION_NAMESPACE") or "")
+    if not relative_namespace or Path(relative_namespace).is_absolute():
+        return _v2_refused(correction_id, "namespace_mismatch")
+    if relative_namespace != str(receipt.get("CORRECTION_NAMESPACE") or ""):
+        return _v2_refused(correction_id, "provenance_mismatch")
+    if "CORRECTION_NAMESPACE" in manifest and str(manifest["CORRECTION_NAMESPACE"]) != (
+        relative_namespace
+    ):
+        return _v2_refused(correction_id, "namespace_mismatch")
+    if relative_namespace != str(progress.get("correction_namespace") or ""):
+        return _v2_refused(correction_id, "namespace_mismatch")
+
+    scope = str(lineage.get("CORRECTION_SCOPE") or "")
+    if scope != CORRECTION_SCOPE_CLOB_V2:
+        return _v2_refused(correction_id, "scope_mismatch")
+    if str(manifest.get("CORRECTION_SCOPE") or "") != CORRECTION_SCOPE_CLOB_V2:
+        return _v2_refused(correction_id, "scope_mismatch")
+
+    audit_source = str(lineage.get("V2_CORRECTION_AUDIT_SOURCE") or "")
+    first_recovery_id = str(lineage.get("FIRST_RECOVERY_COLLECTION_ID") or "")
+    if not audit_source or not first_recovery_id:
+        return _v2_refused(correction_id, "lineage_mismatch")
+    if audit_source != str(receipt.get("V2_CORRECTION_AUDIT_SOURCE") or ""):
+        return _v2_refused(correction_id, "provenance_mismatch")
+    if audit_source != str(manifest.get("V2_CORRECTION_AUDIT_SOURCE") or ""):
+        return _v2_refused(correction_id, "provenance_mismatch")
+    if first_recovery_id != str(progress.get("first_recovery_collection_id") or ""):
+        return _v2_refused(correction_id, "lineage_mismatch")
+
+    if not corrected_audit_view.is_dir():
+        return _v2_refused(correction_id, "missing_corrected_view")
+    wrong_evidence = corrected_audit_view / "correction_overlay" / "wrong_evidence_preserved.json"
+    original_snapshot = (
+        corrected_audit_view / "correction_overlay" / "original_parsed_clob_snapshot.json"
+    )
+    if not wrong_evidence.is_file() or not original_snapshot.is_file():
+        return _v2_refused(correction_id, "overlay_validation_failed")
+    try:
+        wrong_payload = json.loads(wrong_evidence.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return _v2_refused(correction_id, "overlay_validation_failed")
+    if not isinstance(wrong_payload, dict) or not wrong_payload.get("overlay_identities"):
+        return _v2_refused(correction_id, "overlay_validation_failed")
+
+    preservation_evidence_hash = _file_sha256_path(wrong_evidence)
+    overlay_canonical_hash = _corrected_overlay_canonical_hash(corrected_audit_view)
+    overlay_view_index_sha256 = _corrected_overlay_view_index_sha256(corrected_audit_view)
+    ledger_path = correction_namespace / "ledger.jsonl"
+    raw_overlay_index_hash = _raw_overlay_index_hash(correction_namespace)
+    if any(
+        not _is_real_sha256(item)
+        for item in (
+            preservation_evidence_hash,
+            overlay_canonical_hash,
+            overlay_view_index_sha256,
+            raw_overlay_index_hash,
+        )
+    ):
+        return _v2_refused(correction_id, "placeholder_hash")
+
+    audit_path = correction_namespace / "reports" / V2_AUDIT_JSON
+    if not audit_path.is_file():
+        return _v2_refused(correction_id, "missing_v2_audit")
+    try:
+        persisted_audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return _v2_refused(correction_id, "missing_v2_audit")
+    if not isinstance(persisted_audit, dict):
+        return _v2_refused(correction_id, "v2_audit_mismatch")
+
+    # Authoritative V2 audit only: no readiness reinterpretation.
+    recomputed = offline_v2_corpus_audit(corrected_audit_view)
+    if _canonical_sha256(persisted_audit) != _canonical_sha256(recomputed):
+        return _v2_refused(correction_id, "v2_audit_mismatch")
+
+    unresolved = int(recomputed.get("UNRESOLVED_CORRECTION_CLOB_IDENTITY_COUNT") or 0)
+    ownership = int(recomputed.get("TOKEN_OWNERSHIP_VIOLATION_COUNT") or 0)
+    future = int(
+        recomputed.get("ACTUAL_SELECTED_FUTURE_PRICE_COUNT")
+        or recomputed.get("ACTUAL_FUTURE_LEAKAGE_COUNT")
+        or 0
+    )
+    if unresolved != 0 or ownership != 0 or future != 0:
+        return _v2_refused(correction_id, "v2_gates_failed")
+
+    if str(recomputed.get("PHASE35B_V2_DATASET_READY") or "") != "YES":
+        return _v2_refused(correction_id, "v2_dataset_not_ready")
+
+    try:
+        corpus = FullCollectionCorpusAssembler(
+            collection_root=corrected_audit_view.parent,
+            collection_id=corrected_audit_view.name,
+        ).assemble()
+    except (FileNotFoundError, ValueError, json.JSONDecodeError, OSError):
+        return _v2_refused(correction_id, "generic_not_ready")
+    generic_audit = audit_dataset(expected=corpus.expected, observations=corpus.observations)
+    if not generic_audit.phase35_dataset_ready:
+        return _v2_refused(correction_id, "generic_not_ready")
+
+    audit_canonical_sha256 = _canonical_sha256(persisted_audit)
+    audit_file_sha256 = _file_sha256_path(audit_path)
+    manifest_file_sha256 = _file_sha256_path(manifest_path)
+    receipt_file_sha256 = _file_sha256_path(receipt_path)
+    lineage_file_sha256 = _file_sha256_path(lineage_path)
+    raw_overlay_index_file_sha256 = _file_sha256_path(ledger_path)
+    wrong_evidence_file_sha256 = preservation_evidence_hash
+
+    corrected_audit_relative = f"{relative_namespace}/{V2_AUDIT_ARTIFACT_RELATIVE}"
+    overlay_relative = f"{relative_namespace}/{CORRECTED_AUDIT_VIEW_NAME}"
+    wrong_relative = f"{overlay_relative}/{WRONG_EVIDENCE_RELATIVE}"
+    manifest_relative = f"{relative_namespace}/correction-manifest.json"
+    receipt_relative = f"{relative_namespace}/correction-authorization.json"
+    lineage_relative = f"{relative_namespace}/correction_lineage.json"
+    raw_index_relative = f"{relative_namespace}/ledger.jsonl"
+
+    payload: dict[str, Any] = {
+        "CORRECTED_AUDIT_CANONICAL_SHA256": audit_canonical_sha256,
+        "CORRECTED_AUDIT_FILE_SHA256": audit_file_sha256,
+        "CORRECTED_AUDIT_IDENTITY": "phase35_v2_audit",
+        "CORRECTED_AUDIT_RELATIVE_PATH": corrected_audit_relative,
+        "CORRECTED_OVERLAY_CANONICAL_HASH": overlay_canonical_hash,
+        "CORRECTED_OVERLAY_RELATIVE_PATH": overlay_relative,
+        "CORRECTED_OVERLAY_VIEW_IDENTITY": CORRECTED_AUDIT_VIEW_NAME,
+        "CORRECTED_OVERLAY_VIEW_INDEX_SHA256": overlay_view_index_sha256,
+        "CORRECTED_OVERLAY_VIEW_RELATIVE_PATH": overlay_relative,
+        "CORRECTION_CODE_COMMIT": code_commit,
+        "CORRECTION_ID": correction_id,
+        "CORRECTION_LINEAGE_FILE_SHA256": lineage_file_sha256,
+        "CORRECTION_LINEAGE_RELATIVE_PATH": lineage_relative,
+        "CORRECTION_LINEAGE_SHA256": lineage_sha256,
+        "CORRECTION_MANIFEST_FILE_SHA256": manifest_file_sha256,
+        "CORRECTION_MANIFEST_RELATIVE_PATH": manifest_relative,
+        "CORRECTION_MANIFEST_SHA256": manifest_sha256,
+        "CORRECTION_NAMESPACE": relative_namespace,
+        "CORRECTION_RECEIPT_FILE_SHA256": receipt_file_sha256,
+        "CORRECTION_RECEIPT_RELATIVE_PATH": receipt_relative,
+        "CORRECTION_RECEIPT_SHA256": receipt_sha256,
+        "CORRECTION_SCOPE": scope,
+        "FIRST_RECOVERY_COLLECTION_ID": first_recovery_id,
+        "PRESERVATION_EVIDENCE_HASH": preservation_evidence_hash,
+        "PROVIDER_REQUESTS": 0,
+        "RAW_OVERLAY_INDEX_FILE_SHA256": raw_overlay_index_file_sha256,
+        "RAW_OVERLAY_INDEX_HASH": raw_overlay_index_hash,
+        "RAW_OVERLAY_INDEX_RELATIVE_PATH": raw_index_relative,
+        "V2_CORRECTION_AUDIT_SOURCE": audit_source,
+        "V2_FREEZE_ARTIFACT": V2_FREEZE_ARTIFACT_RELATIVE,
+        "WRONG_EVIDENCE_PRESERVED_FILE_SHA256": wrong_evidence_file_sha256,
+        "WRONG_EVIDENCE_PRESERVED_RELATIVE_PATH": wrong_relative,
+    }
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True)
+    assert_text_has_no_machine_roots(encoded)
+    for value in (
+        relative_namespace,
+        corrected_audit_relative,
+        overlay_relative,
+        wrong_relative,
+        manifest_relative,
+        receipt_relative,
+        lineage_relative,
+        raw_index_relative,
+    ):
+        if Path(value).is_absolute():
+            return _v2_refused(correction_id, "namespace_mismatch")
+
+    destination = correction_namespace / "reports" / V2_FREEZE_ARTIFACT_NAME
+    freeze_sha256 = atomic_write_json(destination, payload)
+    return ProductionV2DatasetFreezeResult(
+        status=DatasetFreezeStatus.SUCCESS,
+        correction_id=correction_id,
+        dataset_freeze_created=True,
+        reason=None,
+        freeze_sha256=freeze_sha256,
+        freeze_path=destination,
+        payload=payload,
+    )
+
+
+def _file_sha256_path(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _corrected_overlay_canonical_hash(view: Path) -> str:
+    material = {
+        "events_accepted": _load_json_any(view / "events" / "accepted.json"),
+        "expected_cells": _load_json_any(view / "expected_cells.json"),
+        "parsed_clob": _load_json_any(view / "parsed" / "clob.json"),
+        "plans_clob_cell_map": _load_json_any(view / "plans" / "clob_cell_map.json"),
+        "wrong_evidence_preserved": _load_json_any(
+            view / "correction_overlay" / "wrong_evidence_preserved.json"
+        ),
+        "original_parsed_clob_snapshot": _load_json_any(
+            view / "correction_overlay" / "original_parsed_clob_snapshot.json"
+        ),
+    }
+    return _canonical_sha256(material)
+
+
+def _corrected_overlay_view_index_sha256(view: Path) -> str:
+    """Deterministic index over relative paths + file SHA256 within the overlay view."""
+
+    rows: list[dict[str, str]] = []
+    for path in sorted(view.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(view).as_posix()
+        rows.append({"path": rel, "sha256": _file_sha256_path(path)})
+    return _canonical_sha256(rows)
+
+
+def _raw_overlay_index_hash(correction_namespace: Path) -> str:
+    ledger_path = correction_namespace / "ledger.jsonl"
+    if not ledger_path.is_file():
+        return ""
+    ledger = AppendOnlyLedger(ledger_path)
+    return _raw_index_sha256(ledger)
+
+
+def _load_json_any(path: Path) -> Any:
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))

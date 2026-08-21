@@ -44,6 +44,8 @@ from weather_alpha.phase35.full_collection.corpus import FullCollectionCorpusAss
 from weather_alpha.phase35.full_collection.freeze import (
     DatasetFreezeStatus,
     build_production_dataset_freeze,
+    build_production_v2_dataset_freeze,
+    is_phase35b_v2_production_freeze_namespace,
 )
 from weather_alpha.phase35.full_collection.manifest import (
     ManifestAuthorizationError,
@@ -534,7 +536,18 @@ def phase35_freeze_dataset(
     Consumes a COMPLETE collection namespace and the authoritative machine
     audit JSON. Does not contact providers and does not create a freeze when
     PHASE35_DATASET_READY is false or artifacts fail integrity checks.
+
+    When the target namespace is a Phase35B V2 correction namespace, routes to
+    the V2 freeze adapter (derived corrected_audit_view only; no readiness
+    overrides). Legacy collections continue to use the V1 freeze path.
     """
+    namespace = collection_root / collection_id
+    if is_phase35b_v2_production_freeze_namespace(namespace):
+        v2_result = build_production_v2_dataset_freeze(correction_namespace=namespace)
+        click.echo(json.dumps(v2_result.as_dict(), indent=2, sort_keys=True))
+        if v2_result.status is DatasetFreezeStatus.REFUSED:
+            raise SystemExit(2)
+        return
     result = build_production_dataset_freeze(
         collection_root=collection_root,
         collection_id=collection_id,
